@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_workflow_steps_created
 `
 
 func execStatements(db *sql.DB, ddl string) error {
-	for _, stmt := range strings.Split(ddl, ";") {
+	for stmt := range strings.SplitSeq(ddl, ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
