@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gobank-workflow Demo</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+    <style>
+        #output { min-height: 200px; }
+        canvas { width: 100%; max-width: 600px; }
+        .controls { margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <section class="section">
+        <div class="container">
+            <h1 class="title">gobank-workflow Demo</h1>
+            <p class="subtitle">Simulated daily processing with timing</p>
+
+            <div class="controls buttons">
+                <button class="button is-primary" id="btn-day" disabled>+1 Day</button>
+                <button class="button is-info" id="btn-week" disabled>+7 Days</button>
+                <button class="button is-link" id="btn-month" disabled>+30 Days</button>
+                <button class="button is-warning" id="btn-reset" disabled>Reset</button>
+            </div>
+
+            <div id="output">
+                <p class="has-text-grey">Loading WASM...</p>
+            </div>
+        </div>
+    </section>
+
+    <script src="wasm_exec.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
