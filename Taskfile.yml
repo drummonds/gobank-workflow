@@ -10,6 +10,12 @@ tasks:
     desc: Format Go source files
     cmds:
       - go fmt ./...
+      - go fix ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
 
   vet:
     desc: Run Go vet
@@ -32,6 +38,33 @@ tasks:
     desc: Tidy module dependencies
     cmds:
       - go mod tidy
+
+  wasm:build:
+    desc: Build WASM demo
+    dir: cmd/wasm-demo
+    cmds:
+      - GOOS=js GOARCH=wasm go build -o docs/main.wasm .
+      - cp "$(find $(go env GOROOT) -name wasm_exec.js -print -quit)" docs/
+
+  docs:md:
+    desc: Convert markdown files to HTML
+    cmds:
+      - mkdir -p docs
+      - task-plus md2html --file index.md --dst docs
+      - task-plus md2html --file README.md --dst docs
+      - task-plus md2html --file CHANGELOG.md --dst docs
+      - task-plus md2html --file ROADMAP.md --dst docs
+
+  docs:build:
+    desc: Build all documentation and WASM demo into docs/
+    cmds:
+      - task: docs:md
+      - task: wasm:build
+      - mkdir -p docs/demo
+      - cp cmd/wasm-demo/docs/index.html docs/demo/
+      - cp cmd/wasm-demo/docs/app.js docs/demo/
+      - cp cmd/wasm-demo/docs/main.wasm docs/demo/
+      - cp cmd/wasm-demo/docs/wasm_exec.js docs/demo/
 
   clean:
     desc: Remove build artifacts
