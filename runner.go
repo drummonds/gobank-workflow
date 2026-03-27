@@ -5,20 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	gbp "codeberg.org/hum3/gobank-products"
 	"github.com/google/uuid"
 )
 
 // Runner orchestrates daily workflow processing.
 type Runner struct {
-	store Store
-	sim   *gbp.Simulation
-	clock gbp.Clock
+	store     Store
+	processor DayProcessor
 }
 
 // NewRunner creates a Runner.
-func NewRunner(store Store, sim *gbp.Simulation, clock gbp.Clock) *Runner {
-	return &Runner{store: store, sim: sim, clock: clock}
+func NewRunner(store Store, processor DayProcessor) *Runner {
+	return &Runner{store: store, processor: processor}
 }
 
 // RunDaily processes a single business date idempotently.
@@ -49,13 +47,28 @@ func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, e
 		return nil, fmt.Errorf("creating run: %w", err)
 	}
 
-	obs := NewRunObserver(r.store, run.ID)
-	r.sim.OnDailyUpdate(obs.Handler())
+	result, procErr := r.processor.ProcessDay(ctx, date)
+	if procErr != nil {
+		_ = r.store.FailRun(ctx, run.ID, procErr.Error())
+		return nil, fmt.Errorf("processing %s: %w", date, procErr)
+	}
 
-	_, simErr := r.sim.AdvanceToDate(date.Time())
-	if simErr != nil {
-		_ = r.store.FailRun(ctx, run.ID, simErr.Error())
-		return nil, fmt.Errorf("simulation advance to %s: %w", date, simErr)
+	// Record step results.
+	for _, ar := range result.Accounts {
+		step := &StepResult{
+			ID:             uuid.New().String(),
+			RunID:          run.ID,
+			AccountID:      ar.AccountID,
+			StepName:       "end_of_day",
+			OpeningBalance: ar.OpeningBalance,
+			ClosingBalance: ar.ClosingBalance,
+			InterestAmount: ar.InterestAmount,
+			Exponent:       ar.Exponent,
+			CreatedAt:      time.Now(),
+		}
+		if err := r.store.RecordStep(ctx, step); err != nil {
+			return nil, fmt.Errorf("recording step for %s: %w", ar.AccountID, err)
+		}
 	}
 
 	if err := r.store.CompleteRun(ctx, run.ID); err != nil {

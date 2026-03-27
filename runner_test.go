@@ -2,54 +2,52 @@ package workflow
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
-
-	luca "codeberg.org/hum3/go-luca"
-	gbp "codeberg.org/hum3/gobank-products"
 )
 
-func newTestSim(t *testing.T, startDate time.Time) (*gbp.Simulation, *gbp.SimClock) {
-	t.Helper()
-	ledger, err := luca.NewLedger(":memory:")
-	if err != nil {
-		t.Fatalf("NewLedger: %v", err)
-	}
-	t.Cleanup(func() { ledger.Close() })
+// mockProcessor is a simple DayProcessor for testing.
+type mockProcessor struct {
+	numAccounts int
+	rate        float64 // annual rate
+	balances    map[string]int64
+}
 
-	clock := gbp.NewSimClock(startDate)
-	sim, err := gbp.NewSimulation(ledger, clock)
-	if err != nil {
-		t.Fatalf("NewSimulation: %v", err)
+func newMockProcessor(n int, rate float64, initialBalance int64) *mockProcessor {
+	m := &mockProcessor{
+		numAccounts: n,
+		rate:        rate,
+		balances:    make(map[string]int64, n),
 	}
-	sim.RegisterProduct(gbp.EasyAccess())
+	for i := range n {
+		m.balances[fmt.Sprintf("acct-%04d", i)] = initialBalance
+	}
+	return m
+}
 
-	// Create a cash account for deposits/withdrawals.
-	cash, err := sim.Ledger.CreateAccount("Asset:Cash", "GBP", -2, 0)
-	if err != nil {
-		t.Fatalf("CreateAccount(cash): %v", err)
+func (m *mockProcessor) ProcessDay(_ context.Context, date BusinessDate) (DayResult, error) {
+	var results []AccountResult
+	for id, bal := range m.balances {
+		interest := int64(float64(bal) * m.rate / 365)
+		newBal := bal + interest
+		results = append(results, AccountResult{
+			AccountID:      id,
+			OpeningBalance: bal,
+			ClosingBalance: newBal,
+			InterestAmount: interest,
+			Exponent:       -2,
+		})
+		m.balances[id] = newBal
 	}
-
-	ma, err := sim.OpenAccount("easy-access", "Liability:Savings:alice", "GBP", -2, map[string]string{
-		"annual_rate": "0.015",
-	})
-	if err != nil {
-		t.Fatalf("OpenAccount: %v", err)
-	}
-
-	err = sim.Deposit(ma.Account.ID, 100000, cash.ID, luca.CodeBookTransfer)
-	if err != nil {
-		t.Fatalf("Deposit: %v", err)
-	}
-	return sim, clock
+	return DayResult{Date: date, Accounts: results}, nil
 }
 
 func TestRunner_RunDaily(t *testing.T) {
 	ctx := context.Background()
-	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	sim, clock := newTestSim(t, start)
+	proc := newMockProcessor(3, 0.035, 1000000)
 	store := NewMemStore()
-	runner := NewRunner(store, sim, clock)
+	runner := NewRunner(store, proc)
 
 	date := NewBusinessDate(2026, time.January, 1)
 	rec, err := runner.RunDaily(ctx, date)
@@ -63,22 +61,20 @@ func TestRunner_RunDaily(t *testing.T) {
 		t.Fatalf("expected completed, got %s", rec.Status)
 	}
 
-	// Verify steps were recorded.
 	steps, err := store.ListSteps(ctx, rec.ID)
 	if err != nil {
 		t.Fatalf("ListSteps: %v", err)
 	}
-	if len(steps) == 0 {
-		t.Fatal("expected at least one step result")
+	if len(steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(steps))
 	}
 }
 
 func TestRunner_Idempotent(t *testing.T) {
 	ctx := context.Background()
-	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	sim, clock := newTestSim(t, start)
+	proc := newMockProcessor(1, 0.035, 1000000)
 	store := NewMemStore()
-	runner := NewRunner(store, sim, clock)
+	runner := NewRunner(store, proc)
 
 	date := NewBusinessDate(2026, time.January, 1)
 
@@ -90,7 +86,6 @@ func TestRunner_Idempotent(t *testing.T) {
 		t.Fatal("first run should return record")
 	}
 
-	// Second call for same date returns nil (no-op).
 	rec2, err := runner.RunDaily(ctx, date)
 	if err != nil {
 		t.Fatalf("second RunDaily: %v", err)
@@ -102,10 +97,9 @@ func TestRunner_Idempotent(t *testing.T) {
 
 func TestRunner_CatchUp(t *testing.T) {
 	ctx := context.Background()
-	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	sim, clock := newTestSim(t, start)
+	proc := newMockProcessor(2, 0.035, 1000000)
 	store := NewMemStore()
-	runner := NewRunner(store, sim, clock)
+	runner := NewRunner(store, proc)
 
 	from := NewBusinessDate(2026, time.January, 1)
 	target := NewBusinessDate(2026, time.January, 5)
@@ -128,24 +122,42 @@ func TestRunner_CatchUp(t *testing.T) {
 
 func TestRunner_CatchUpFromExisting(t *testing.T) {
 	ctx := context.Background()
-	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	sim, clock := newTestSim(t, start)
+	proc := newMockProcessor(2, 0.035, 1000000)
 	store := NewMemStore()
-	runner := NewRunner(store, sim, clock)
+	runner := NewRunner(store, proc)
 
-	// Process first 3 days.
 	from := NewBusinessDate(2026, time.January, 1)
 	_, err := runner.CatchUp(ctx, from, NewBusinessDate(2026, time.January, 3))
 	if err != nil {
 		t.Fatalf("first CatchUp: %v", err)
 	}
 
-	// Catch up to day 5 — should only process days 4 and 5.
 	recs, err := runner.CatchUp(ctx, from, NewBusinessDate(2026, time.January, 5))
 	if err != nil {
 		t.Fatalf("second CatchUp: %v", err)
 	}
 	if len(recs) != 2 {
 		t.Fatalf("expected 2 new runs (Jan 4-5), got %d", len(recs))
+	}
+}
+
+func TestRunner_StepInterestAccumulates(t *testing.T) {
+	ctx := context.Background()
+	proc := newMockProcessor(1, 0.035, 1000000) // 10,000.00 at 3.5%
+	store := NewMemStore()
+	runner := NewRunner(store, proc)
+
+	from := NewBusinessDate(2026, time.January, 1)
+	recs, err := runner.CatchUp(ctx, from, NewBusinessDate(2026, time.January, 3))
+	if err != nil {
+		t.Fatalf("CatchUp: %v", err)
+	}
+
+	// Check that day 2's opening balance reflects day 1's interest.
+	steps1, _ := store.ListSteps(ctx, recs[0].ID)
+	steps2, _ := store.ListSteps(ctx, recs[1].ID)
+	if steps2[0].OpeningBalance != steps1[0].ClosingBalance {
+		t.Fatalf("day 2 opening (%d) should equal day 1 closing (%d)",
+			steps2[0].OpeningBalance, steps1[0].ClosingBalance)
 	}
 }

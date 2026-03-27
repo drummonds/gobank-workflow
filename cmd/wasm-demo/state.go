@@ -8,12 +8,51 @@ import (
 	"sync"
 	"time"
 
-	luca "codeberg.org/hum3/go-luca"
-	gbp "codeberg.org/hum3/gobank-products"
 	wf "codeberg.org/hum3/gobank-workflow"
 )
 
 const numAccounts = 1000
+
+// simpleAccount is a minimal account model for the demo.
+type simpleAccount struct {
+	ID      string
+	Balance int64   // minor units (pence)
+	Rate    float64 // annual rate
+}
+
+// simpleProcessor implements wf.DayProcessor with basic daily interest.
+type simpleProcessor struct {
+	accounts []simpleAccount
+}
+
+func newSimpleProcessor(n int, rate float64, initialBalance int64) *simpleProcessor {
+	p := &simpleProcessor{accounts: make([]simpleAccount, n)}
+	for i := range n {
+		p.accounts[i] = simpleAccount{
+			ID:      fmt.Sprintf("acct-%04d", i),
+			Balance: initialBalance,
+			Rate:    rate,
+		}
+	}
+	return p
+}
+
+func (p *simpleProcessor) ProcessDay(_ context.Context, date wf.BusinessDate) (wf.DayResult, error) {
+	results := make([]wf.AccountResult, len(p.accounts))
+	for i := range p.accounts {
+		a := &p.accounts[i]
+		interest := int64(float64(a.Balance) * a.Rate / 365)
+		results[i] = wf.AccountResult{
+			AccountID:      a.ID,
+			OpeningBalance: a.Balance,
+			ClosingBalance: a.Balance + interest,
+			InterestAmount: interest,
+			Exponent:       -2,
+		}
+		a.Balance += interest
+	}
+	return wf.DayResult{Date: date, Accounts: results}, nil
+}
 
 // DayTiming records how long each day's processing took.
 type DayTiming struct {
@@ -22,14 +61,11 @@ type DayTiming struct {
 	Accounts int
 }
 
-// WasmState holds the in-memory simulation and workflow runner.
+// WasmState holds the demo state.
 type WasmState struct {
 	mu      sync.Mutex
 	runner  *wf.Runner
 	store   *wf.MemStore
-	sim     *gbp.Simulation
-	clock   *gbp.SimClock
-	ledger  luca.Ledger
 	timings []DayTiming
 	start   wf.BusinessDate
 	current wf.BusinessDate
@@ -43,44 +79,12 @@ func NewWasmState() *WasmState {
 }
 
 func (s *WasmState) reset() {
-	s.ledger = luca.NewMemLedger()
 	s.start = wf.NewBusinessDate(2026, time.January, 1)
 	s.current = s.start
 
-	s.clock = gbp.NewSimClock(s.start.Time())
-	sim, err := gbp.NewSimulation(s.ledger, s.clock)
-	if err != nil {
-		s.err = err.Error()
-		return
-	}
-	s.sim = sim
-	s.sim.RegisterProduct(gbp.EasyAccess())
-
-	// Create cash account and open savings accounts.
-	cash, err := s.ledger.CreateAccount("Asset:Cash", "GBP", -2, 0)
-	if err != nil {
-		s.err = err.Error()
-		return
-	}
-
-	for i := range numAccounts {
-		path := fmt.Sprintf("Liability:Savings:cust%04d", i)
-		ma, err := s.sim.OpenAccount("easy-access", path, "GBP", -2, map[string]string{
-			"annual_rate": "0.035",
-		})
-		if err != nil {
-			s.err = err.Error()
-			return
-		}
-		// Deposit 10,000.00 into each account.
-		if err := s.sim.Deposit(ma.Account.ID, 1000000, cash.ID, luca.CodeBookTransfer); err != nil {
-			s.err = err.Error()
-			return
-		}
-	}
-
+	proc := newSimpleProcessor(numAccounts, 0.035, 1000000) // 10,000.00 at 3.5%
 	s.store = wf.NewMemStore()
-	s.runner = wf.NewRunner(s.store, s.sim, s.clock)
+	s.runner = wf.NewRunner(s.store, proc)
 	s.timings = nil
 	s.err = ""
 }
@@ -120,12 +124,4 @@ func (s *WasmState) AdvanceDays(n int) {
 		s.current = s.current.Next()
 	}
 	s.err = ""
-}
-
-func (s *WasmState) Timings() []DayTiming {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]DayTiming, len(s.timings))
-	copy(out, s.timings)
-	return out
 }

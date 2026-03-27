@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "codeberg.org/hum3/go-postgres"
+	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
 func newTestDB(t *testing.T) *sql.DB {
