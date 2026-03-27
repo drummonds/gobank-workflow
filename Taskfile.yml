@@ -10,6 +10,12 @@ tasks:
     desc: Format Go source files
     cmds:
       - go fmt ./...
+      - go fix ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
 
   vet:
     desc: Run Go vet
