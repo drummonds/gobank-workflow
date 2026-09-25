@@ -23,9 +23,10 @@ tasks:
       - go vet ./...
 
   test:
-    desc: Run tests
+    desc: Run tests (library and demo pipeline model)
     cmds:
       - go test ./...
+      - cd cmd/wasm-demo && go test ./...
 
   check:
     desc: Run fmt, vet, and test
@@ -55,14 +56,23 @@ tasks:
       - task-plus md2html --file CHANGELOG.md --dst docs
       - task-plus md2html --file ROADMAP.md --dst docs
 
+  docs:d2:
+    desc: Render d2 diagrams to SVG
+    cmds:
+      - d2 release-pipeline.d2 docs/release-pipeline.svg
+      - chmod 644 docs/release-pipeline.svg
+
   docs:build:
     desc: Build all documentation and WASM demo into docs/
     cmds:
       - task: docs:md
+      - task: docs:d2
       - task: wasm:build
       - mkdir -p docs/demo
       - cp cmd/wasm-demo/docs/index.html docs/demo/
       - cp cmd/wasm-demo/docs/app.js docs/demo/
+      - cp cmd/wasm-demo/docs/deploy.html docs/demo/
+      - cp cmd/wasm-demo/docs/deploy.js docs/demo/
       - cp cmd/wasm-demo/docs/main.wasm docs/demo/
       - cp cmd/wasm-demo/docs/wasm_exec.js docs/demo/
 

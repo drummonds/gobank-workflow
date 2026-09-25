@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	wf "codeberg.org/hum3/gobank-workflow"
+	wf "git.bytestone.uk/hum3/gobank-workflow"
 )
 
 const numAccounts = 1000

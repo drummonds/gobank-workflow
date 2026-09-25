@@ -2,7 +2,7 @@
 
 Banking workflow engine using [go-workflows](https://github.com/cschleiden/go-workflows) for orchestrated processes and scheduled tasks.
 
-Part of the [gobank](https://codeberg.org/hum3/gobank) family of libraries.
+Part of the [gobank](https://git.bytestone.uk/hum3/gobank) family of libraries.
 
 ## Overview
 
@@ -14,9 +14,10 @@ gobank-workflow provides:
 
 ## Status
 
-Early development. See [issues](https://codeberg.org/hum3/gobank-workflow/issues) for planned work.
+Early development. See [issues](https://git.bytestone.uk/hum3/gobank-workflow/issues) for planned work.
 
 ## Links
 
-- **Source:** https://codeberg.org/hum3/gobank-workflow
+- **Documentation:** https://gobank-workflow.docs.bytestone.uk/
+- **Source:** https://git.bytestone.uk/hum3/gobank-workflow
 - **Mirror:** https://github.com/drummonds/gobank-workflow

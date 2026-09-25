@@ -1,0 +1,41 @@
+# Stages of shipping a new gobank version, and the task-plus code that runs
+# each one. `tp release` drives the whole pipeline (task-plus
+# internal/workflow: Run → Gather → Ask → Execute). One view, one question:
+# what are the stages and where is each implemented.
+
+direction: down
+
+classes: {
+  stage: {
+    shape: rectangle
+    style.border-radius: 6
+    style.font-size: 15
+  }
+  note: {
+    shape: text
+    style.font-size: 14
+    style.italic: true
+  }
+}
+
+tp: "tp release  —  task-plus internal/workflow" {
+  check: "1 check\ntask check — fmt, vet, test\nworkflow.Run → runCmds(cfg.Check)" {class: stage}
+  bump: "2 bump\nchoose the next semantic version\nworkflow.Gather → version.BumpPastRetracted" {class: stage}
+  changelog: "3 changelog\nmove [Unreleased] under the new version\nchangelog.Update" {class: stage}
+  tag: "4 tag\ncommit, then annotated tag vX.Y.Z\ngit.Commit → git.Tag" {class: stage}
+  push_origin: "5 push origin\nbranch and tag to origin (git.bytestone.uk)\ngit.PushTo(dir, \"origin\")" {class: stage}
+  push_mirror: "6 push mirror\nbranch and tag to GitHub\ngit.PushTo(dir, \"github\")" {class: stage}
+  verify: "7 verify install\nprove the tag is fetchable\nGOPROXY=direct go install mod@vX.Y.Z → pokeGoProxy" {class: stage}
+  deploy: "8 deploy docs\ntask docs:build, rsync docs/ to docs.bytestone.uk\nrunCmds(pages_build) → deploy.Rsync.Deploy" {class: stage}
+
+  check -> bump -> changelog -> tag -> push_origin
+  push_origin -> push_mirror -> verify -> deploy
+
+  rollback: "Before the first push a failure rolls back:\nthe tag is deleted and HEAD reset.\nAfter it there is no undo — fix forward." {class: note}
+  rollback -> push_origin: rollback boundary {style.stroke-dash: 4}
+}
+
+demo: "The release pipeline demo models the same eight stages with resume semantics:\na failed stage is retried, completed stages are never repeated." {
+  class: note
+  near: bottom-center
+}

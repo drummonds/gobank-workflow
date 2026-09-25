@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gobank-workflow — Release pipeline demo</title>
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+    <style>
+        #output { min-height: 200px; }
+    </style>
+</head>
+<body>
+    <section class="section">
+        <div class="container">
+            <h1 class="title">Release pipeline demo</h1>
+            <p class="subtitle">Shipping a new gobank version, one stage at a time — <a href="index.html">daily processing demo</a> · <a href="../index.html">docs</a></p>
+
+            <div id="output">
+                <p class="has-text-grey">Loading WASM...</p>
+            </div>
+        </div>
+    </section>
+
+    <script src="wasm_exec.js"></script>
+    <script src="deploy.js"></script>
+</body>
+</html>

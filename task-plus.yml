@@ -4,5 +4,5 @@ remotes:
 pages_build:
   - task docs:build
 pages_deploy:
-  - type: statichost
-    site: h3-gobank-workflow
+  - type: rsync
+    site: gobank-workflow

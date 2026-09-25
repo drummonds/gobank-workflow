@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	wf "codeberg.org/hum3/gobank-workflow"
+	wf "git.bytestone.uk/hum3/gobank-workflow"
 )
 
 func (s *WasmState) BuildDashboardHTML() string {

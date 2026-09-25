@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	_ "codeberg.org/hum3/go-postgres"
+	_ "git.bytestone.uk/hum3/go-postgres"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
