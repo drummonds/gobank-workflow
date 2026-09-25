@@ -1,4 +1,4 @@
-package workflow
+package sqlstore
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"time"
 
 	_ "git.bytestone.uk/hum3/go-postgres"
+	db "git.bytestone.uk/hum3/gobank-db"
+	wf "git.bytestone.uk/hum3/gobank-workflow"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
@@ -23,17 +25,17 @@ func newTestDB(t *testing.T) *sql.DB {
 func TestSQLStore_RunLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
-	store, err := NewSQLStore(db)
+	store, err := New(db)
 	if err != nil {
-		t.Fatalf("NewSQLStore: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
-	date := NewBusinessDate(2026, time.January, 15)
-	run := &RunRecord{
+	date := wf.NewBusinessDate(2026, time.January, 15)
+	run := &wf.RunRecord{
 		ID:           "run-1",
-		WorkflowType: WorkflowDailyUpdate,
+		WorkflowType: wf.WorkflowDailyUpdate,
 		BusinessDate: date,
-		Status:       StatusRunning,
+		Status:       wf.StatusRunning,
 		StartedAt:    time.Now(),
 		CreatedAt:    time.Now(),
 	}
@@ -46,7 +48,7 @@ func TestSQLStore_RunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	if got == nil || got.Status != StatusRunning {
+	if got == nil || got.Status != wf.StatusRunning {
 		t.Fatalf("expected running run, got %v", got)
 	}
 
@@ -55,7 +57,7 @@ func TestSQLStore_RunLifecycle(t *testing.T) {
 	}
 
 	got, _ = store.GetRun(ctx, "run-1")
-	if got.Status != StatusCompleted {
+	if got.Status != wf.StatusCompleted {
 		t.Fatalf("expected completed, got %s", got.Status)
 	}
 }
@@ -63,62 +65,62 @@ func TestSQLStore_RunLifecycle(t *testing.T) {
 func TestSQLStore_IdempotencyGuard(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
-	store, err := NewSQLStore(db)
+	store, err := New(db)
 	if err != nil {
-		t.Fatalf("NewSQLStore: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
-	date := NewBusinessDate(2026, time.January, 15)
-	run := &RunRecord{
+	date := wf.NewBusinessDate(2026, time.January, 15)
+	run := &wf.RunRecord{
 		ID:           "run-1",
-		WorkflowType: WorkflowDailyUpdate,
+		WorkflowType: wf.WorkflowDailyUpdate,
 		BusinessDate: date,
-		Status:       StatusRunning,
+		Status:       wf.StatusRunning,
 		StartedAt:    time.Now(),
 		CreatedAt:    time.Now(),
 	}
 	store.CreateRun(ctx, run)
 	store.CompleteRun(ctx, "run-1")
 
-	run2 := &RunRecord{
+	run2 := &wf.RunRecord{
 		ID:           "run-2",
-		WorkflowType: WorkflowDailyUpdate,
+		WorkflowType: wf.WorkflowDailyUpdate,
 		BusinessDate: date,
-		Status:       StatusPending,
+		Status:       wf.StatusPending,
 		StartedAt:    time.Now(),
 		CreatedAt:    time.Now(),
 	}
 	err = store.CreateRun(ctx, run2)
-	if err != ErrAlreadyCompleted {
-		t.Fatalf("expected ErrAlreadyCompleted, got %v", err)
+	if err != wf.ErrAlreadyCompleted {
+		t.Fatalf("expected wf.ErrAlreadyCompleted, got %v", err)
 	}
 }
 
 func TestSQLStore_Steps(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
-	store, err := NewSQLStore(db)
+	store, err := New(db)
 	if err != nil {
-		t.Fatalf("NewSQLStore: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	// Need a run first for FK.
-	run := &RunRecord{
+	run := &wf.RunRecord{
 		ID:           "run-1",
-		WorkflowType: WorkflowDailyUpdate,
-		BusinessDate: NewBusinessDate(2026, time.January, 15),
-		Status:       StatusRunning,
+		WorkflowType: wf.WorkflowDailyUpdate,
+		BusinessDate: wf.NewBusinessDate(2026, time.January, 15),
+		Status:       wf.StatusRunning,
 		StartedAt:    time.Now(),
 		CreatedAt:    time.Now(),
 	}
 	store.CreateRun(ctx, run)
 
-	store.RecordStep(ctx, &StepResult{
+	store.RecordStep(ctx, &wf.StepResult{
 		ID: "s1", RunID: "run-1", AccountID: "acct-1",
 		StepName: "end_of_day", OpeningBalance: 100000, ClosingBalance: 100004,
 		InterestAmount: 4, Exponent: -2, CreatedAt: time.Now(),
 	})
-	store.RecordStep(ctx, &StepResult{
+	store.RecordStep(ctx, &wf.StepResult{
 		ID: "s2", RunID: "run-1", AccountID: "acct-2",
 		StepName: "end_of_day", CreatedAt: time.Now(),
 	})
@@ -138,13 +140,13 @@ func TestSQLStore_Steps(t *testing.T) {
 func TestSQLStore_LastCompletedDate(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
-	store, err := NewSQLStore(db)
+	store, err := New(db)
 	if err != nil {
-		t.Fatalf("NewSQLStore: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	// No runs.
-	last, err := store.LastCompletedDate(ctx, WorkflowDailyUpdate)
+	last, err := store.LastCompletedDate(ctx, wf.WorkflowDailyUpdate)
 	if err != nil {
 		t.Fatalf("LastCompletedDate: %v", err)
 	}
@@ -154,11 +156,11 @@ func TestSQLStore_LastCompletedDate(t *testing.T) {
 
 	// Add runs.
 	for i, d := range []int{10, 15, 20} {
-		run := &RunRecord{
+		run := &wf.RunRecord{
 			ID:           string(rune('a' + i)),
-			WorkflowType: WorkflowDailyUpdate,
-			BusinessDate: NewBusinessDate(2026, time.January, d),
-			Status:       StatusRunning,
+			WorkflowType: wf.WorkflowDailyUpdate,
+			BusinessDate: wf.NewBusinessDate(2026, time.January, d),
+			Status:       wf.StatusRunning,
 			StartedAt:    time.Now(),
 			CreatedAt:    time.Now(),
 		}
@@ -166,8 +168,8 @@ func TestSQLStore_LastCompletedDate(t *testing.T) {
 		store.CompleteRun(ctx, run.ID)
 	}
 
-	last, _ = store.LastCompletedDate(ctx, WorkflowDailyUpdate)
-	expected := NewBusinessDate(2026, time.January, 20)
+	last, _ = store.LastCompletedDate(ctx, wf.WorkflowDailyUpdate)
+	expected := wf.NewBusinessDate(2026, time.January, 20)
 	if !last.Equal(expected) {
 		t.Fatalf("expected %s, got %s", expected, last)
 	}
@@ -175,22 +177,22 @@ func TestSQLStore_LastCompletedDate(t *testing.T) {
 
 func TestSQLStore_SchemaIdempotent(t *testing.T) {
 	db := newTestDB(t)
-	_, err := NewSQLStore(db)
+	_, err := New(db)
 	if err != nil {
-		t.Fatalf("first NewSQLStore: %v", err)
+		t.Fatalf("first New: %v", err)
 	}
-	_, err = NewSQLStore(db)
+	_, err = New(db)
 	if err != nil {
-		t.Fatalf("second NewSQLStore: %v", err)
+		t.Fatalf("second New: %v", err)
 	}
 }
 
 func TestSQLStore_FindRunNotFound(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
-	store, _ := NewSQLStore(db)
+	store, _ := New(db)
 
-	got, err := store.FindRun(ctx, WorkflowDailyUpdate, NewBusinessDate(2026, time.January, 1))
+	got, err := store.FindRun(ctx, wf.WorkflowDailyUpdate, wf.NewBusinessDate(2026, time.January, 1))
 	if err != nil {
 		t.Fatalf("FindRun: %v", err)
 	}
@@ -202,14 +204,14 @@ func TestSQLStore_FindRunNotFound(t *testing.T) {
 func TestSQLStore_ListRuns(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
-	store, _ := NewSQLStore(db)
+	store, _ := New(db)
 
 	for i := 1; i <= 5; i++ {
-		store.CreateRun(ctx, &RunRecord{
+		store.CreateRun(ctx, &wf.RunRecord{
 			ID:           string(rune('a' + i)),
-			WorkflowType: WorkflowDailyUpdate,
-			BusinessDate: NewBusinessDate(2026, time.January, i),
-			Status:       StatusCompleted,
+			WorkflowType: wf.WorkflowDailyUpdate,
+			BusinessDate: wf.NewBusinessDate(2026, time.January, i),
+			Status:       wf.StatusCompleted,
 			StartedAt:    time.Now(),
 			CreatedAt:    time.Now(),
 		})
@@ -221,5 +223,58 @@ func TestSQLStore_ListRuns(t *testing.T) {
 	}
 	if len(runs) != 3 {
 		t.Fatalf("expected 3 runs, got %d", len(runs))
+	}
+}
+
+func TestMigrationsEndAtTheSchemaVersionTheCodeExpects(t *testing.T) {
+	if err := db.Validate(Migrations); err != nil {
+		t.Fatalf("Migrations invalid: %v", err)
+	}
+	if got := Migrations[len(Migrations)-1].Version; got != wf.SchemaVersion {
+		t.Fatalf("last migration is v%d but wf.SchemaVersion is %d", got, wf.SchemaVersion)
+	}
+}
+
+func TestNewRecordsTheSchemaVersion(t *testing.T) {
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.SchemaVersion(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != wf.SchemaVersion {
+		t.Fatalf("applied schema version = %d, want %d", got, wf.SchemaVersion)
+	}
+}
+
+func TestCountRuns(t *testing.T) {
+	ctx := context.Background()
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts, err := store.CountRuns(ctx)
+	if err != nil || len(counts) != 0 {
+		t.Fatalf("empty store: counts=%v err=%v", counts, err)
+	}
+	d := wf.NewBusinessDate(2026, time.March, 1)
+	for _, st := range []wf.RunStatus{wf.StatusCompleted, wf.StatusCompleted, wf.StatusFailed, wf.StatusRunning} {
+		if err := store.CreateRun(ctx, &wf.RunRecord{
+			ID: "run-" + d.String(), WorkflowType: wf.WorkflowDailyUpdate,
+			BusinessDate: d, Status: st, StartedAt: time.Now(), CreatedAt: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		d = d.Next()
+	}
+	counts, err = store.CountRuns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	daily := counts[wf.WorkflowDailyUpdate]
+	if daily[wf.StatusCompleted] != 2 || daily[wf.StatusFailed] != 1 || daily[wf.StatusRunning] != 1 || daily.Total() != 4 {
+		t.Fatalf("daily_update counts = %v", daily)
 	}
 }

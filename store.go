@@ -30,6 +30,10 @@ type Store interface {
 	// ListRuns returns recent runs, most recent first.
 	ListRuns(ctx context.Context, limit int) ([]RunRecord, error)
 
+	// CountRuns returns, for every workflow type that has run, how many
+	// runs (instances) exist in each status.
+	CountRuns(ctx context.Context) (map[WorkflowType]RunCounts, error)
+
 	// LastCompletedDate returns the most recent business date with a
 	// completed run of the given workflow type. Returns zero BusinessDate if none.
 	LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error)

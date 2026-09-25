@@ -10,6 +10,8 @@ require (
 require (
 	github.com/flosch/pongo2/v6 v6.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/kr/pretty v0.3.0 // indirect
+	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 )
 

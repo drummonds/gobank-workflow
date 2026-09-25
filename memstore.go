@@ -150,3 +150,17 @@ func (m *MemStore) LastCompletedDate(ctx context.Context, wfType WorkflowType) (
 	}
 	return latest, nil
 }
+
+func (m *MemStore) CountRuns(ctx context.Context) (map[WorkflowType]RunCounts, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	counts := map[WorkflowType]RunCounts{}
+	for _, r := range m.runs {
+		if counts[r.WorkflowType] == nil {
+			counts[r.WorkflowType] = RunCounts{}
+		}
+		counts[r.WorkflowType][r.Status]++
+	}
+	return counts, nil
+}

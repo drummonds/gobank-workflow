@@ -1,11 +1,15 @@
-package workflow
+package sqlstore
 
-import (
-	"database/sql"
-	"strings"
-)
+import db "git.bytestone.uk/hum3/gobank-db"
 
-// SchemaSQL is the DDL for gobank-workflow tables.
+// Migrations is the versioned history of the gobank-workflow schema, applied
+// by New through gobank-db. Append a new Migration to change the schema and
+// raise wf.SchemaVersion to match; never edit one that has shipped.
+var Migrations = []db.Migration{
+	{Version: 1, Name: "workflow runs and steps", Phase: db.Expand, SQL: SchemaSQL},
+}
+
+// SchemaSQL is the DDL of schema version 1: workflow_runs and workflow_steps.
 const SchemaSQL = `
 CREATE TABLE IF NOT EXISTS workflow_runs (
     id TEXT PRIMARY KEY,
@@ -39,16 +43,3 @@ CREATE INDEX IF NOT EXISTS idx_workflow_steps_run
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_created
     ON workflow_steps(created_at);
 `
-
-func execStatements(db *sql.DB, ddl string) error {
-	for stmt := range strings.SplitSeq(ddl, ";") {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" {
-			continue
-		}
-		if _, err := db.Exec(stmt); err != nil {
-			return err
-		}
-	}
-	return nil
-}

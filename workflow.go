@@ -19,6 +19,35 @@ const (
 	WorkflowDailyUpdate WorkflowType = "daily_update"
 )
 
+// SchemaVersion is the SQL schema version this code expects. The
+// sqlstore package's migration history must end at it; the memory store
+// has no schema.
+const SchemaVersion = 1
+
+// Definition describes a kind of workflow the engine can run. Definitions
+// is the registry; each run in the Store is an instance of one of them.
+type Definition struct {
+	Type        WorkflowType
+	Description string
+}
+
+// Definitions lists every workflow type the engine knows.
+var Definitions = []Definition{
+	{WorkflowDailyUpdate, "End-of-day processing for one business date: runs the DayProcessor over every account and records a step per account. One run per date; a completed date is never re-run."},
+}
+
+// RunCounts is the number of runs of one workflow type in each status.
+type RunCounts map[RunStatus]int
+
+// Total is the number of runs across all statuses.
+func (c RunCounts) Total() int {
+	n := 0
+	for _, v := range c {
+		n += v
+	}
+	return n
+}
+
 // RunStatus is the lifecycle state of a workflow run.
 type RunStatus string
 

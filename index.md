@@ -30,6 +30,31 @@ Runner.RunDaily(date)
   -> Store.CompleteRun()
 ```
 
+## Workflow definitions
+
+Each definition is a kind of workflow the engine can run; each run recorded in the store is an instance of one. `Definitions` is the registry in code, and `Store.CountRuns` reports how many instances each definition has in every state. The daily processing demo shows both.
+
+| Type | Description | Instance key |
+|---|---|---|
+| `daily_update` | End-of-day processing for one business date: runs the `DayProcessor` over every account and records a step per account | (`workflow_type`, `business_date`), unique |
+
+An instance moves through these states:
+
+| State | Meaning | Set by |
+|---|---|---|
+| `pending` | created, not yet started | `Store.CreateRun` |
+| `running` | processing the date | `Runner.RunDaily` on start |
+| `completed` | every step recorded; the date will never be re-run | `Store.CompleteRun` |
+| `failed` | the `DayProcessor` returned an error; the date is eligible for a retry | `Store.FailRun` |
+
+## Schema
+
+The SQL schema is versioned with [gobank-db](https://gobank-db.docs.bytestone.uk/) expand/contract migrations. The SQL adapter lives in the `sqlstore` package so the core package stays free of database drivers. `sqlstore.New` applies `sqlstore.Migrations` in order and records each in `schema_migrations`; `SchemaVersion` in the core package is the version the code expects, and `sqlstore.Store.SchemaVersion(ctx)` is the version a database is at.
+
+| Version | Name | Phase | Tables |
+|---|---|---|---|
+| 1 | workflow runs and steps | expand | `workflow_runs` (one row per instance, unique on type and business date), `workflow_steps` (one row per account per run) |
+
 ## Demos
 
 Both demos are Go compiled to WASM, rendered with [lofigui](https://git.bytestone.uk/hum3/lofigui).

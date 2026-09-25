@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Schema versioning through gobank-db migrations: `sqlstore.Migrations`, the `SchemaVersion` constant and `sqlstore.Store.SchemaVersion(ctx)`; `sqlstore.New` records applied versions in `schema_migrations`
+- `Definitions` registry of workflow types and `Store.CountRuns`, the number of instances of each definition in every state; shown on the daily processing demo with the schema version
+- Docs: workflow definitions, instance states and schema versions on the landing page
+
+### Changed
+- SQL store moved to the `sqlstore` package (`sqlstore.New`, `sqlstore.Store`); the core package no longer links database drivers, which keeps the WASM demo small
+
 ## [0.1.1] - 2026-09-25
 
  - Release pipeline demo, docs site, module path moved to git.bytestone.uk

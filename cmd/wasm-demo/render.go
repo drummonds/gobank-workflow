@@ -29,6 +29,19 @@ func (s *WasmState) BuildDashboardHTML() string {
 	}
 	b.WriteString(`</div>`)
 
+	// Workflow definitions with the instances recorded in the store.
+	counts, _ := s.store.CountRuns(context.Background())
+	b.WriteString(`<div class="box">`)
+	fmt.Fprintf(&b, `<h3 class="title is-5">Workflow definitions <span class="tag is-light">schema v%d</span></h3>`, wf.SchemaVersion)
+	b.WriteString(`<table class="table is-striped is-fullwidth is-narrow">`)
+	b.WriteString(`<thead><tr><th>Type</th><th>Description</th><th>Pending</th><th>Running</th><th>Completed</th><th>Failed</th><th>Instances</th></tr></thead><tbody>`)
+	for _, d := range wf.Definitions {
+		c := counts[d.Type]
+		fmt.Fprintf(&b, `<tr><td><code>%s</code></td><td>%s</td><td>%d</td><td>%d</td><td class="has-text-success">%d</td><td class="has-text-danger">%d</td><td><strong>%d</strong></td></tr>`,
+			d.Type, d.Description, c[wf.StatusPending], c[wf.StatusRunning], c[wf.StatusCompleted], c[wf.StatusFailed], c.Total())
+	}
+	b.WriteString(`</tbody></table></div>`)
+
 	// Timing table.
 	if len(s.timings) > 0 {
 		b.WriteString(`<div class="box">`)
