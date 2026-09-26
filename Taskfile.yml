@@ -23,10 +23,20 @@ tasks:
       - go vet ./...
 
   test:
-    desc: Run tests (library and demo pipeline model)
+    desc: Run tests (library, demo app, demo pipeline model)
     cmds:
       - go test ./...
+      - cd cmd/demo && go test ./...
       - cd cmd/wasm-demo && go test ./...
+
+  demo:
+    desc: Run the demo app server on http://localhost:1360
+    dir: cmd/demo
+    cmds:
+      - go run -ldflags "-X main.version={{.VERSION}}" . -addr :1360
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty
 
   check:
     desc: Run fmt, vet, and test
@@ -39,6 +49,17 @@ tasks:
     desc: Tidy module dependencies
     cmds:
       - go mod tidy
+
+  app:wasm:
+    desc: Build the demo app for the browser into docs/app (service worker, same mux as the server)
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty
+    cmds:
+      - rm -rf docs/app
+      - cd cmd/demo && GOOS=js GOARCH=wasm go build -ldflags="-s -X main.version={{.VERSION}}" -trimpath -o main.wasm .
+      - go run git.bytestone.uk/hum3/lofigui/cmd/wasm-deploy@v0.17.40 --dir=docs/app --title="gobank-workflow demo app" --build-version={{.VERSION}} --wasm=cmd/demo/main.wasm
+      - rm cmd/demo/main.wasm
 
   wasm:build:
     desc: Build WASM demo
@@ -57,16 +78,20 @@ tasks:
       - task-plus md2html --file ROADMAP.md --dst docs
 
   docs:d2:
-    desc: Render d2 diagrams to SVG
+    desc: Render d2 diagrams to SVG (hand-written, plus one generated per workflow definition)
     cmds:
       - d2 release-pipeline.d2 docs/release-pipeline.svg
-      - chmod 644 docs/release-pipeline.svg
+      - go run ./cmd/defd2 -out docs/definitions
+      - for f in docs/definitions/*.d2; do d2 "$f" "${f%.d2}.svg"; done
+      - cp docs/definitions/*.svg cmd/demo/assets/
+      - chmod 644 docs/release-pipeline.svg docs/definitions/*.svg cmd/demo/assets/*.svg
 
   docs:build:
     desc: Build all documentation and WASM demo into docs/
     cmds:
       - task: docs:md
       - task: docs:d2
+      - task: app:wasm
       - task: wasm:build
       - mkdir -p docs/demo
       - cp cmd/wasm-demo/docs/index.html docs/demo/

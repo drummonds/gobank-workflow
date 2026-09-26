@@ -4,55 +4,14 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/gobank-workflow/internal/demoaccounts"
 )
 
 const numAccounts = 1000
-
-// simpleAccount is a minimal account model for the demo.
-type simpleAccount struct {
-	ID      string
-	Balance int64   // minor units (pence)
-	Rate    float64 // annual rate
-}
-
-// simpleProcessor implements wf.DayProcessor with basic daily interest.
-type simpleProcessor struct {
-	accounts []simpleAccount
-}
-
-func newSimpleProcessor(n int, rate float64, initialBalance int64) *simpleProcessor {
-	p := &simpleProcessor{accounts: make([]simpleAccount, n)}
-	for i := range n {
-		p.accounts[i] = simpleAccount{
-			ID:      fmt.Sprintf("acct-%04d", i),
-			Balance: initialBalance,
-			Rate:    rate,
-		}
-	}
-	return p
-}
-
-func (p *simpleProcessor) ProcessDay(_ context.Context, date wf.BusinessDate) (wf.DayResult, error) {
-	results := make([]wf.AccountResult, len(p.accounts))
-	for i := range p.accounts {
-		a := &p.accounts[i]
-		interest := int64(float64(a.Balance) * a.Rate / 365)
-		results[i] = wf.AccountResult{
-			AccountID:      a.ID,
-			OpeningBalance: a.Balance,
-			ClosingBalance: a.Balance + interest,
-			InterestAmount: interest,
-			Exponent:       -2,
-		}
-		a.Balance += interest
-	}
-	return wf.DayResult{Date: date, Accounts: results}, nil
-}
 
 // DayTiming records how long each day's processing took.
 type DayTiming struct {
@@ -82,7 +41,7 @@ func (s *WasmState) reset() {
 	s.start = wf.NewBusinessDate(2026, time.January, 1)
 	s.current = s.start
 
-	proc := newSimpleProcessor(numAccounts, 0.035, 1000000) // 10,000.00 at 3.5%
+	proc := demoaccounts.New(numAccounts, 0.035, 1000000) // 10,000.00 at 3.5%
 	s.store = wf.NewMemStore()
 	s.runner = wf.NewRunner(s.store, proc)
 	s.timings = nil

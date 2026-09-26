@@ -1,3 +1,5 @@
 *.html
 demo/
 release-pipeline.svg
+app/
+definitions/
