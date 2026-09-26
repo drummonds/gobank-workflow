@@ -68,8 +68,8 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 	// Check for existing completed run (idempotency guard).
 	var count int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM workflow_runs WHERE workflow_type = ? AND business_date = ? AND status = 'completed'`,
-		string(run.WorkflowType), run.BusinessDate.String(),
+		`SELECT COUNT(*) FROM workflow_runs WHERE workflow_type = ? AND business_date = ? AND instance_key = ? AND status = 'completed'`,
+		string(run.WorkflowType), run.BusinessDate.String(), run.Key,
 	).Scan(&count)
 	if err != nil {
 		return err
@@ -78,10 +78,23 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 		return wf.ErrAlreadyCompleted
 	}
 
+	// One instance per (type, date): an unfinished attempt is replaced by
+	// this one, steps first because of the foreign key.
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM workflow_steps WHERE run_id IN (SELECT id FROM workflow_runs WHERE workflow_type = ? AND business_date = ? AND instance_key = ?)`,
+		string(run.WorkflowType), run.BusinessDate.String(), run.Key); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM workflow_runs WHERE workflow_type = ? AND business_date = ? AND instance_key = ?`,
+		string(run.WorkflowType), run.BusinessDate.String(), run.Key); err != nil {
+		return err
+	}
+
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO workflow_runs (id, workflow_type, business_date, status, started_at, error_message, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		run.ID, string(run.WorkflowType), run.BusinessDate.String(),
+		`INSERT INTO workflow_runs (id, workflow_type, business_date, instance_key, status, started_at, error_message, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, string(run.WorkflowType), run.BusinessDate.String(), run.Key,
 		string(run.Status), run.StartedAt.UTC().Format(time.RFC3339Nano),
 		run.Error, run.CreatedAt.UTC().Format(time.RFC3339Nano),
 	)
@@ -90,15 +103,43 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 
 func (s *Store) GetRun(ctx context.Context, id string) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs WHERE id = ?`, id)
 }
 
 func (s *Store) FindRun(ctx context.Context, wfType wf.WorkflowType, date wf.BusinessDate) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, status, started_at, completed_at, error_message, created_at
-		 FROM workflow_runs WHERE workflow_type = ? AND business_date = ?`,
+		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
+		 FROM workflow_runs WHERE workflow_type = ? AND business_date = ? AND instance_key = ''`,
 		string(wfType), date.String())
+}
+
+func (s *Store) FindRunByKey(ctx context.Context, wfType wf.WorkflowType, key string) (*wf.RunRecord, error) {
+	return s.scanRun(ctx,
+		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
+		 FROM workflow_runs WHERE workflow_type = ? AND instance_key = ?`,
+		string(wfType), key)
+}
+
+func (s *Store) RestartRun(ctx context.Context, id string) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE workflow_runs SET status = 'running', started_at = ?, completed_at = NULL, error_message = '' WHERE id = ?`,
+		now, id)
+	return err
+}
+
+func (s *Store) DeleteSteps(ctx context.Context, runID string, statuses ...wf.RunStatus) error {
+	if len(statuses) == 0 {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_steps WHERE run_id = ?`, runID)
+		return err
+	}
+	for _, st := range statuses {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM workflow_steps WHERE run_id = ? AND status = ?`, runID, string(st)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) CompleteRun(ctx context.Context, id string) error {
@@ -118,10 +159,14 @@ func (s *Store) FailRun(ctx context.Context, id string, errMsg string) error {
 }
 
 func (s *Store) RecordStep(ctx context.Context, step *wf.StepResult) error {
+	status := step.Status
+	if status == "" {
+		status = wf.StatusCompleted
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO workflow_steps (id, run_id, account_id, step_name, opening_balance, closing_balance, interest_amount, exponent, duration_ns, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		step.ID, step.RunID, step.AccountID, step.StepName,
+		`INSERT INTO workflow_steps (id, run_id, account_id, step_name, status, error_message, opening_balance, closing_balance, interest_amount, exponent, duration_ns, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		step.ID, step.RunID, step.AccountID, step.StepName, string(status), step.Error,
 		step.OpeningBalance, step.ClosingBalance, step.InterestAmount,
 		step.Exponent, step.DurationNs,
 		step.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -131,7 +176,7 @@ func (s *Store) RecordStep(ctx context.Context, step *wf.StepResult) error {
 
 func (s *Store) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, run_id, account_id, step_name, opening_balance, closing_balance, interest_amount, exponent, duration_ns, created_at
+		`SELECT id, run_id, account_id, step_name, status, error_message, opening_balance, closing_balance, interest_amount, exponent, duration_ns, created_at
 		 FROM workflow_steps WHERE run_id = ? ORDER BY created_at`, runID)
 	if err != nil {
 		return nil, err
@@ -141,12 +186,13 @@ func (s *Store) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, e
 	var results []wf.StepResult
 	for rows.Next() {
 		var step wf.StepResult
-		var createdAt string
-		if err := rows.Scan(&step.ID, &step.RunID, &step.AccountID, &step.StepName,
+		var createdAt, status string
+		if err := rows.Scan(&step.ID, &step.RunID, &step.AccountID, &step.StepName, &status, &step.Error,
 			&step.OpeningBalance, &step.ClosingBalance, &step.InterestAmount,
 			&step.Exponent, &step.DurationNs, &createdAt); err != nil {
 			return nil, err
 		}
+		step.Status = wf.RunStatus(status)
 		step.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
 		results = append(results, step)
 	}
@@ -155,7 +201,7 @@ func (s *Store) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, e
 
 func (s *Store) ListRuns(ctx context.Context, limit int) ([]wf.RunRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, workflow_type, business_date, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -209,7 +255,7 @@ func scanRunFromRow(row scannable) (*wf.RunRecord, error) {
 	var createdAt string
 	var errMsg string
 
-	err := row.Scan(&r.ID, &wfType, &dateStr, &status, &startedAt, &completedAt, &errMsg, &createdAt)
+	err := row.Scan(&r.ID, &wfType, &dateStr, &r.Key, &status, &startedAt, &completedAt, &errMsg, &createdAt)
 	if err != nil {
 		return nil, err
 	}

@@ -17,23 +17,63 @@ type WorkflowType string
 
 const (
 	WorkflowDailyUpdate WorkflowType = "daily_update"
+	WorkflowRelease     WorkflowType = "release"
 )
 
 // SchemaVersion is the SQL schema version this code expects. The
 // sqlstore package's migration history must end at it; the memory store
 // has no schema.
-const SchemaVersion = 1
+const SchemaVersion = 3
 
 // Definition describes a kind of workflow the engine can run. Definitions
-// is the registry; each run in the Store is an instance of one of them.
+// is the registry; each run in the Store is an instance of one of them,
+// and each step recorded against a run is one of the definition's Steps.
 type Definition struct {
 	Type        WorkflowType
 	Description string
+	InstanceKey string // what identifies one instance
+	Steps       []Step
 }
+
+// Step is one named unit of work in a Definition. Source links to the
+// code that performs it.
+type Step struct {
+	Name        string
+	Description string
+	Source      string
+}
+
+const (
+	srcWorkflow = "https://git.bytestone.uk/hum3/gobank-workflow/src/branch/main/"
+	srcTaskPlus = "https://git.bytestone.uk/hum3/task-plus/src/branch/main/"
+)
+
+// ReleaseStages are the step names of the release pipeline, in order.
+var ReleaseStages = []string{"check", "bump", "changelog", "tag", "push origin", "push mirror", "verify install", "deploy docs"}
 
 // Definitions lists every workflow type the engine knows.
 var Definitions = []Definition{
-	{WorkflowDailyUpdate, "End-of-day processing for one business date: runs the DayProcessor over every account and records a step per account. One run per date; a completed date is never re-run."},
+	{
+		Type:        WorkflowDailyUpdate,
+		Description: "End-of-day processing for one business date: the DayProcessor runs over every account. A completed date is never re-run.",
+		InstanceKey: "business date",
+		Steps:       []Step{{"end_of_day", "one per account: the DayProcessor accrues the day's interest; the Runner records opening and closing balances", srcWorkflow + "runner.go"}},
+	},
+	{
+		Type:        WorkflowRelease,
+		Description: "Ship a new version through the release pipeline. A failed stage stops the release; the next run resumes from that stage.",
+		InstanceKey: "version",
+		Steps: []Step{
+			{"check", "fmt, vet, test", srcTaskPlus + "internal/workflow/workflow.go"},
+			{"bump", "choose the next semantic version", srcTaskPlus + "internal/workflow/gather.go"},
+			{"changelog", "move [Unreleased] under the new version heading", srcTaskPlus + "internal/changelog/changelog.go"},
+			{"tag", "commit and create the annotated git tag", srcTaskPlus + "internal/workflow/execute.go"},
+			{"push origin", "push commit and tag to origin", srcTaskPlus + "internal/git/git.go"},
+			{"push mirror", "push commit and tag to the GitHub mirror", srcTaskPlus + "internal/git/git.go"},
+			{"verify install", "go install the tag from the module proxy", srcTaskPlus + "internal/workflow/execute.go"},
+			{"deploy docs", "build and rsync the docs site", srcTaskPlus + "internal/deploy/rsync.go"},
+		},
+	},
 }
 
 // RunCounts is the number of runs of one workflow type in each status.

@@ -9,6 +9,7 @@ import (
 	_ "git.bytestone.uk/hum3/go-postgres"
 	db "git.bytestone.uk/hum3/gobank-db"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/gobank-workflow/storetest"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
@@ -276,5 +277,50 @@ func TestCountRuns(t *testing.T) {
 	daily := counts[wf.WorkflowDailyUpdate]
 	if daily[wf.StatusCompleted] != 2 || daily[wf.StatusFailed] != 1 || daily[wf.StatusRunning] != 1 || daily.Total() != 4 {
 		t.Fatalf("daily_update counts = %v", daily)
+	}
+}
+
+func TestRetryReplacesFailedRun(t *testing.T) {
+	ctx := context.Background()
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := wf.NewBusinessDate(2026, time.April, 1)
+	first := &wf.RunRecord{ID: "attempt-1", WorkflowType: wf.WorkflowDailyUpdate, BusinessDate: d, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	if err := store.CreateRun(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordStep(ctx, &wf.StepResult{ID: "s1", RunID: first.ID, AccountID: "a", StepName: "end_of_day", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FailRun(ctx, first.ID, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	second := &wf.RunRecord{ID: "attempt-2", WorkflowType: wf.WorkflowDailyUpdate, BusinessDate: d, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now().Add(time.Millisecond)}
+	if err := store.CreateRun(ctx, second); err != nil {
+		t.Fatalf("retry after failure must be accepted: %v", err)
+	}
+	runs, _ := store.ListRuns(ctx, 10)
+	if len(runs) != 1 || runs[0].ID != "attempt-2" {
+		t.Fatalf("want exactly the retry attempt, got %+v", runs)
+	}
+	if steps, _ := store.ListSteps(ctx, "attempt-1"); len(steps) != 0 {
+		t.Fatalf("steps of the replaced attempt should be gone, got %d", len(steps))
+	}
+}
+
+func TestKeyedInstancesAndRestart(t *testing.T) {
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storetest.KeyedInstances(t, store)
+	storetest.RestartAndStepStatus(t, store)
+}
+
+func TestSchemaHistoryIsThreeVersions(t *testing.T) {
+	if len(Migrations) != 3 || Migrations[1].Phase != db.Expand || Migrations[2].Phase != db.Contract {
+		t.Fatalf("expected v1 expand, v2 expand, v3 contract; got %+v", Migrations)
 	}
 }

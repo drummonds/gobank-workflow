@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -25,18 +26,35 @@ func (m *MemStore) CreateRun(ctx context.Context, run *RunRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// One instance per (type, date): a completed one is final, an
+	// unfinished one is replaced by this new attempt along with its steps.
+	kept := m.runs[:0]
 	for _, r := range m.runs {
-		if r.WorkflowType == run.WorkflowType && r.BusinessDate.Equal(run.BusinessDate) {
+		if r.WorkflowType == run.WorkflowType && r.BusinessDate.Equal(run.BusinessDate) && r.Key == run.Key {
 			if r.Status == StatusCompleted {
 				return ErrAlreadyCompleted
 			}
+			m.dropSteps(r.ID)
+			continue
 		}
+		kept = append(kept, r)
 	}
+	m.runs = kept
 	if run.CreatedAt.IsZero() {
 		run.CreatedAt = time.Now()
 	}
 	m.runs = append(m.runs, *run)
 	return nil
+}
+
+func (m *MemStore) dropSteps(runID string) {
+	kept := m.steps[:0]
+	for _, st := range m.steps {
+		if st.RunID != runID {
+			kept = append(kept, st)
+		}
+	}
+	m.steps = kept
 }
 
 func (m *MemStore) GetRun(ctx context.Context, id string) (*RunRecord, error) {
@@ -57,12 +75,56 @@ func (m *MemStore) FindRun(ctx context.Context, wfType WorkflowType, date Busine
 	defer m.mu.Unlock()
 
 	for i := range m.runs {
-		if m.runs[i].WorkflowType == wfType && m.runs[i].BusinessDate.Equal(date) {
+		if m.runs[i].WorkflowType == wfType && m.runs[i].BusinessDate.Equal(date) && m.runs[i].Key == "" {
 			r := m.runs[i]
 			return &r, nil
 		}
 	}
 	return nil, nil
+}
+
+func (m *MemStore) FindRunByKey(ctx context.Context, wfType WorkflowType, key string) (*RunRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i := range m.runs {
+		if m.runs[i].WorkflowType == wfType && m.runs[i].Key == key {
+			r := m.runs[i]
+			return &r, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MemStore) RestartRun(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			m.runs[i].Status = StatusRunning
+			m.runs[i].StartedAt = time.Now()
+			m.runs[i].CompletedAt = time.Time{}
+			m.runs[i].Error = ""
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *MemStore) DeleteSteps(ctx context.Context, runID string, statuses ...RunStatus) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	kept := m.steps[:0]
+	for _, st := range m.steps {
+		if st.RunID == runID && (len(statuses) == 0 || slices.Contains(statuses, st.Status)) {
+			continue
+		}
+		kept = append(kept, st)
+	}
+	m.steps = kept
+	return nil
 }
 
 func (m *MemStore) CompleteRun(ctx context.Context, id string) error {

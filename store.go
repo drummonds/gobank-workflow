@@ -11,9 +11,17 @@ type Store interface {
 	// GetRun retrieves a run by ID.
 	GetRun(ctx context.Context, id string) (*RunRecord, error)
 
-	// FindRun looks up a run by (workflow_type, business_date).
+	// FindRun looks up a date-keyed run by (workflow_type, business_date).
 	// Returns nil, nil if not found.
 	FindRun(ctx context.Context, wfType WorkflowType, date BusinessDate) (*RunRecord, error)
+
+	// FindRunByKey looks up a keyed run by (workflow_type, key).
+	// Returns nil, nil if not found.
+	FindRunByKey(ctx context.Context, wfType WorkflowType, key string) (*RunRecord, error)
+
+	// RestartRun puts a failed run back to running for a new attempt:
+	// status running, started now, error cleared.
+	RestartRun(ctx context.Context, id string) error
 
 	// CompleteRun marks a run as completed with the current time.
 	CompleteRun(ctx context.Context, id string) error
@@ -26,6 +34,10 @@ type Store interface {
 
 	// ListSteps returns all steps for a run, ordered by created_at.
 	ListSteps(ctx context.Context, runID string) ([]StepResult, error)
+
+	// DeleteSteps removes a run's steps in the given statuses, or all of
+	// them when no status is given.
+	DeleteSteps(ctx context.Context, runID string, statuses ...RunStatus) error
 
 	// ListRuns returns recent runs, most recent first.
 	ListRuns(ctx context.Context, limit int) ([]RunRecord, error)

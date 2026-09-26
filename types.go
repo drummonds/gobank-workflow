@@ -59,19 +59,25 @@ type RunRecord struct {
 	ID           string
 	WorkflowType WorkflowType
 	BusinessDate BusinessDate
-	Status       RunStatus
-	StartedAt    time.Time
-	CompletedAt  time.Time
-	Error        string
-	CreatedAt    time.Time
+	// Key identifies the instance within its type when the business date
+	// does not: the version for a release. Empty for date-keyed workflows.
+	Key         string
+	Status      RunStatus
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Error       string
+	CreatedAt   time.Time
 }
 
-// StepResult records one account's processing within a run.
+// StepResult records one step within a run: an account's end-of-day
+// processing, or a stage of a pipeline (AccountID empty).
 type StepResult struct {
 	ID             string
 	RunID          string
 	AccountID      string
 	StepName       string
+	Status         RunStatus
+	Error          string
 	OpeningBalance int64
 	ClosingBalance int64
 	InterestAmount int64

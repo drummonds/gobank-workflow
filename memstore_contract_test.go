@@ -1,0 +1,13 @@
+package workflow_test
+
+import (
+	"testing"
+
+	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/gobank-workflow/storetest"
+)
+
+func TestMemStore_KeyedInstances(t *testing.T) { storetest.KeyedInstances(t, wf.NewMemStore()) }
+func TestMemStore_RestartAndStepStatus(t *testing.T) {
+	storetest.RestartAndStepStatus(t, wf.NewMemStore())
+}

@@ -69,3 +69,38 @@ func checkCounts(t *testing.T, s Store) {
 }
 
 func TestMemStore_CountRuns(t *testing.T) { checkCounts(t, NewMemStore()) }
+
+// A retry after a failure is a new attempt at the same instance, not a
+// second instance: the failed run is replaced.
+func checkRetryReplacesFailedRun(t *testing.T, s Store) {
+	t.Helper()
+	ctx := context.Background()
+	d := NewBusinessDate(2026, time.April, 1)
+	first := &RunRecord{ID: "attempt-1", WorkflowType: WorkflowDailyUpdate, BusinessDate: d, Status: StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	if err := s.CreateRun(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FailRun(ctx, first.ID, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	second := &RunRecord{ID: "attempt-2", WorkflowType: WorkflowDailyUpdate, BusinessDate: d, Status: StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now().Add(time.Millisecond)}
+	if err := s.CreateRun(ctx, second); err != nil {
+		t.Fatalf("retry after failure must be accepted: %v", err)
+	}
+	runs, err := s.ListRuns(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].ID != "attempt-2" {
+		t.Fatalf("want exactly the retry attempt, got %+v", runs)
+	}
+	if got, _ := s.GetRun(ctx, "attempt-1"); got != nil {
+		t.Fatalf("failed attempt should be gone, got %+v", got)
+	}
+	counts, _ := s.CountRuns(ctx)
+	if counts[WorkflowDailyUpdate][StatusFailed] != 0 || counts[WorkflowDailyUpdate].Total() != 1 {
+		t.Fatalf("counts after retry = %v", counts[WorkflowDailyUpdate])
+	}
+}
+
+func TestMemStore_RetryReplacesFailedRun(t *testing.T) { checkRetryReplacesFailedRun(t, NewMemStore()) }

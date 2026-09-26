@@ -30,21 +30,32 @@ func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, e
 		return nil, nil
 	}
 
-	now := time.Now()
-	run := &RunRecord{
-		ID:           uuid.New().String(),
-		WorkflowType: WorkflowDailyUpdate,
-		BusinessDate: date,
-		Status:       StatusRunning,
-		StartedAt:    now,
-		CreatedAt:    now,
-	}
-
-	if err := r.store.CreateRun(ctx, run); err != nil {
-		if err == ErrAlreadyCompleted {
-			return nil, nil
+	var run *RunRecord
+	if existing != nil {
+		// A new attempt at the same instance: every account is reprocessed.
+		run = existing
+		if err := r.store.RestartRun(ctx, run.ID); err != nil {
+			return nil, fmt.Errorf("restarting run: %w", err)
 		}
-		return nil, fmt.Errorf("creating run: %w", err)
+		if err := r.store.DeleteSteps(ctx, run.ID); err != nil {
+			return nil, fmt.Errorf("clearing steps: %w", err)
+		}
+	} else {
+		now := time.Now()
+		run = &RunRecord{
+			ID:           uuid.New().String(),
+			WorkflowType: WorkflowDailyUpdate,
+			BusinessDate: date,
+			Status:       StatusRunning,
+			StartedAt:    now,
+			CreatedAt:    now,
+		}
+		if err := r.store.CreateRun(ctx, run); err != nil {
+			if err == ErrAlreadyCompleted {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("creating run: %w", err)
+		}
 	}
 
 	result, procErr := r.processor.ProcessDay(ctx, date)
@@ -60,6 +71,7 @@ func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, e
 			RunID:          run.ID,
 			AccountID:      ar.AccountID,
 			StepName:       "end_of_day",
+			Status:         StatusCompleted,
 			OpeningBalance: ar.OpeningBalance,
 			ClosingBalance: ar.ClosingBalance,
 			InterestAmount: ar.InterestAmount,
