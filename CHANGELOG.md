@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Demo app (`cmd/demo`, `task demo`, and in the docs as a WASM service-worker build): About, Workflows menu with time-ordered instances and a definitions explorer, instance pages showing state and steps, a simulation driver, and go-dbexplorer over the live schema
+- `internal/demoaccounts`: the shared demo DayProcessor, with an injectable one-off failure
+
+- `release` workflow definition and `Runner.RunPipeline`: a keyed (version) multi-step instance whose steps are the pipeline stages; a failed stage stops the run and the next run resumes from it. Available from the demo app's simulation page with a choice of stage to fail
+- `Definition.Steps` and `InstanceKey`: definitions describe their steps; the app's definition pages lead with them
+- `RunRecord.Key`, `StepResult.Status` and `Error`; `Store.FindRunByKey`, `RestartRun`, `DeleteSteps`; `storetest` package with the Store contract checks
+- `diagram` package and `cmd/defd2`: d2 source generated from the definitions registry, one diagram per definition, and an instance diagram with steps coloured by state; rendered into the docs and shown in the demo app, where an instance's d2 is downloadable
+- Schema v2 (expand: instance key, step status) and v3 (contract: drop the date-only unique index)
+
+### Changed
+- A retry is a new attempt at the same instance: `RunDaily` restarts the failed run in place instead of creating another, so the instance id is stable
+
+### Fixed
+- A retry after a failed run no longer leaves two instances for one date in the memory store, and is no longer rejected by the SQL store's unique index
+
 ## [0.1.2] - 2026-09-25
 
  - Schema versions, workflow definitions with instance counts by state
