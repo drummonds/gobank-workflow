@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-27
+
+ - Release pipeline runner, keyed instances, step status, definition diagrams, demo app
+
 ### Added
 - Demo app (`cmd/demo`, `task demo`, and in the docs as a WASM service-worker build): About, Workflows menu with time-ordered instances and a definitions explorer, instance pages showing state and steps, a simulation driver, and go-dbexplorer over the live schema
 - `internal/demoaccounts`: the shared demo DayProcessor, with an injectable one-off failure
