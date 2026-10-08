@@ -129,6 +129,16 @@ func (s *Store) RestartRun(ctx context.Context, id string) error {
 	return err
 }
 
+func (s *Store) WaitRun(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET status = 'waiting', error_message = '' WHERE id = ?`, id)
+	return err
+}
+
+func (s *Store) ResumeRun(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', error_message = '' WHERE id = ?`, id)
+	return err
+}
+
 func (s *Store) DeleteSteps(ctx context.Context, runID string, statuses ...wf.RunStatus) error {
 	if len(statuses) == 0 {
 		_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_steps WHERE run_id = ?`, runID)

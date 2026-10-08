@@ -11,3 +11,4 @@ func TestMemStore_KeyedInstances(t *testing.T) { storetest.KeyedInstances(t, wf.
 func TestMemStore_RestartAndStepStatus(t *testing.T) {
 	storetest.RestartAndStepStatus(t, wf.NewMemStore())
 }
+func TestMemStore_WaitAndResume(t *testing.T) { storetest.WaitAndResume(t, wf.NewMemStore()) }

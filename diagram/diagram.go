@@ -35,6 +35,7 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
 	b.WriteString("classes: {\n")
 	b.WriteString("  completed: {style.fill: \"#d1fae5\"; style.stroke: \"#059669\"}\n")
 	b.WriteString("  failed: {style.fill: \"#fee2e2\"; style.stroke: \"#dc2626\"; style.bold: true}\n")
+	b.WriteString("  waiting: {style.fill: \"#fef3c7\"; style.stroke: \"#d97706\"; style.bold: true}\n")
 	b.WriteString("  not_run: {style.fill: \"#f3f4f6\"; style.stroke: \"#9ca3af\"; style.stroke-dash: 3}\n")
 	b.WriteString("}\n\n")
 	name := run.Key
@@ -51,6 +52,8 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
 				class = "completed"
 			case wf.StatusFailed:
 				class = "failed"
+			case wf.StatusWaiting:
+				class = "waiting"
 			}
 		}
 		fmt.Fprintf(&b, "  %s.class: %s\n", id(st.Name), class)

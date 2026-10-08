@@ -112,6 +112,29 @@ func (m *MemStore) RestartRun(ctx context.Context, id string) error {
 	return nil
 }
 
+func (m *MemStore) WaitRun(ctx context.Context, id string) error {
+	return m.setStatus(id, StatusWaiting)
+}
+
+func (m *MemStore) ResumeRun(ctx context.Context, id string) error {
+	return m.setStatus(id, StatusRunning)
+}
+
+// setStatus moves a run between the in-flight statuses without touching
+// its timestamps: the attempt is the same one.
+func (m *MemStore) setStatus(id string, status RunStatus) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			m.runs[i].Status = status
+			m.runs[i].Error = ""
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *MemStore) DeleteSteps(ctx context.Context, runID string, statuses ...RunStatus) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

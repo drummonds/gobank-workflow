@@ -17,6 +17,8 @@ func statusTag(s wf.RunStatus) string {
 	switch s {
 	case wf.StatusRunning:
 		class = "is-info"
+	case wf.StatusWaiting:
+		class = "is-warning"
 	case wf.StatusCompleted:
 		class = "is-success"
 	case wf.StatusFailed:
@@ -242,7 +244,7 @@ func (a *App) definitionHTML(ctx context.Context, t wf.WorkflowType) (string, bo
 	a.diagramHTML(&b, t)
 	b.WriteString(`<h2 class="subtitle mt-4">Instances <span class="has-text-grey">(runs of this definition)</span></h2>`)
 	b.WriteString(`<div class="tags are-medium">`)
-	for _, st := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusCompleted, wf.StatusFailed} {
+	for _, st := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusCompleted, wf.StatusFailed} {
 		fmt.Fprintf(&b, `<span class="tag">%s&nbsp;<strong>%d</strong></span>`, st, c[st])
 	}
 	fmt.Fprintf(&b, `<span class="tag is-dark">instances&nbsp;<strong>%d</strong></span></div>`, c.Total())

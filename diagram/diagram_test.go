@@ -55,6 +55,7 @@ func TestInstanceColoursStepsByState(t *testing.T) {
 		{StepName: "tag", Status: wf.StatusCompleted},
 		{StepName: "push origin", Status: wf.StatusCompleted},
 		{StepName: "push mirror", Status: wf.StatusFailed, Error: "boom"},
+		{StepName: "verify install", Status: wf.StatusWaiting},
 	}
 	src := Instance(def, run, steps)
 	if strings.Contains(src, "boom") || strings.Contains(src, "choose the next") {
@@ -68,7 +69,8 @@ func TestInstanceColoursStepsByState(t *testing.T) {
 		"not_run:",
 		"check.class: completed",
 		"push_mirror.class: failed",
-		"verify_install.class: not_run",
+		"waiting:",
+		"verify_install.class: waiting",
 		"deploy_docs.class: not_run",
 		"release v0.1.3 — failed",
 	} {

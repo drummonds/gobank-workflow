@@ -94,6 +94,7 @@ type RunStatus string
 const (
 	StatusPending   RunStatus = "pending"
 	StatusRunning   RunStatus = "running"
+	StatusWaiting   RunStatus = "waiting" // parked on a stage's condition; a tick re-enters it
 	StatusCompleted RunStatus = "completed"
 	StatusFailed    RunStatus = "failed"
 )

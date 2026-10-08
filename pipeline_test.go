@@ -168,3 +168,111 @@ func TestRunPipelineStopsAtFailureAndResumesFromIt(t *testing.T) {
 		t.Fatalf("steps after retry = %+v", steps)
 	}
 }
+
+// --- Runner: waiting stages -----------------------------------------------
+
+func TestRunPipelineWaitsOnAConditionUntilItHolds(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	calls := map[string]int{}
+	approved := false
+	stages := []Stage{
+		{Name: "check", Run: func(context.Context) error { calls["check"]++; return nil }},
+		{Name: "approve", Until: func(context.Context) (bool, error) { calls["approve"]++; return approved, nil }},
+		{Name: "push", Run: func(context.Context) error { calls["push"]++; return nil }},
+	}
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.June, 2)
+
+	rec, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.4", d, stages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec == nil || rec.Status != StatusWaiting {
+		t.Fatalf("a false condition should leave the run waiting, got %+v", rec)
+	}
+	if calls["push"] != 0 {
+		t.Fatal("stages after the waiting one must not run")
+	}
+	steps, _ := store.ListSteps(ctx, rec.ID)
+	if len(steps) != 2 || steps[0].Status != StatusCompleted || steps[1].StepName != "approve" || steps[1].Status != StatusWaiting {
+		t.Fatalf("steps while waiting = %+v", steps)
+	}
+	waitingSince := steps[1].CreatedAt
+	startedAt := rec.StartedAt
+
+	// A tick while the condition still fails: same instance, same attempt, no new step.
+	again, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.4", d, stages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != rec.ID || again.Status != StatusWaiting || !again.StartedAt.Equal(startedAt) {
+		t.Fatalf("re-entering a waiting run must continue the same attempt, got %+v", again)
+	}
+	if calls["check"] != 1 || calls["approve"] != 2 {
+		t.Fatalf("only the condition should be re-evaluated: %v", calls)
+	}
+	steps, _ = store.ListSteps(ctx, rec.ID)
+	if len(steps) != 2 || !steps[1].CreatedAt.Equal(waitingSince) {
+		t.Fatalf("the waiting step should be kept, not re-recorded: %+v", steps)
+	}
+
+	approved = true
+	done, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.4", d, stages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.ID != rec.ID || done.Status != StatusCompleted || !done.StartedAt.Equal(startedAt) {
+		t.Fatalf("once the condition holds the same attempt completes, got %+v", done)
+	}
+	if calls["check"] != 1 || calls["approve"] != 3 || calls["push"] != 1 {
+		t.Fatalf("calls after completion = %v", calls)
+	}
+	steps, _ = store.ListSteps(ctx, rec.ID)
+	if len(steps) != 3 {
+		t.Fatalf("want 3 steps, got %+v", steps)
+	}
+	for _, s := range steps {
+		if s.Status != StatusCompleted {
+			t.Fatalf("every step should be completed, got %+v", s)
+		}
+	}
+}
+
+func TestRunPipelineConditionGatesTheStagesRun(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	ran := 0
+	ready := false
+	stages := []Stage{{Name: "promote",
+		Until: func(context.Context) (bool, error) { return ready, nil },
+		Run:   func(context.Context) error { ran++; return nil },
+	}}
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.June, 2)
+	if rec, err := r.RunPipeline(ctx, WorkflowRelease, "v1", d, stages); err != nil || rec.Status != StatusWaiting || ran != 0 {
+		t.Fatalf("Run must not execute before the condition holds: %+v, %v, ran %d", rec, err, ran)
+	}
+	ready = true
+	if rec, err := r.RunPipeline(ctx, WorkflowRelease, "v1", d, stages); err != nil || rec.Status != StatusCompleted || ran != 1 {
+		t.Fatalf("Run should execute once the condition holds: %+v, %v, ran %d", rec, err, ran)
+	}
+}
+
+func TestRunPipelineConditionErrorFailsTheStage(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	stages := []Stage{{Name: "approve", Until: func(context.Context) (bool, error) { return false, errors.New("approvals down") }}}
+	_, err := NewRunner(store, nil).RunPipeline(ctx, WorkflowRelease, "v1", NewBusinessDate(2026, time.June, 2), stages)
+	if err == nil || !strings.Contains(err.Error(), "approvals down") {
+		t.Fatalf("a condition error should fail the run, got %v", err)
+	}
+	run, _ := store.FindRunByKey(ctx, WorkflowRelease, "v1")
+	if run == nil || run.Status != StatusFailed {
+		t.Fatalf("run = %+v", run)
+	}
+	steps, _ := store.ListSteps(ctx, run.ID)
+	if len(steps) != 1 || steps[0].Status != StatusFailed || steps[0].Error != "approvals down" {
+		t.Fatalf("steps = %+v", steps)
+	}
+}

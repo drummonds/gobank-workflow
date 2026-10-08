@@ -23,6 +23,15 @@ type Store interface {
 	// status running, started now, error cleared.
 	RestartRun(ctx context.Context, id string) error
 
+	// WaitRun parks a run on a stage's condition: status waiting, the
+	// attempt's StartedAt kept.
+	WaitRun(ctx context.Context, id string) error
+
+	// ResumeRun continues a waiting run's attempt: status running,
+	// error cleared, StartedAt kept. RestartRun is the new-attempt
+	// counterpart.
+	ResumeRun(ctx context.Context, id string) error
+
 	// CompleteRun marks a run as completed with the current time.
 	CompleteRun(ctx context.Context, id string) error
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Waiting stages: `Stage.Until` is a condition the stage waits on. While it is false the run is parked as `waiting` (a new run and step status) and `RunPipeline` returns; the caller's next call re-evaluates it and continues the same attempt, so a wait survives a restart and only the status is persisted. Once it holds, `Run` executes if set. `Store.WaitRun` and `Store.ResumeRun` are the transitions; no schema change
+- Docs: comparison with other workflow engines (`research/comparison.md`): Go libraries and the larger systems set against this one, with feature matrices, the closest relatives and a table of gaps and candidate additions
+
 ## [0.1.3] - 2026-09-27
 
  - Release pipeline runner, keyed instances, step status, definition diagrams, demo app

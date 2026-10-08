@@ -8,17 +8,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// Stage is one step of a pipeline workflow: a named unit of work.
+// Stage is one step of a pipeline workflow: a named unit of work. Until,
+// when set, is a condition the stage waits on: while it is false the run
+// parks as waiting and RunPipeline returns, and the caller's next call
+// re-evaluates it; once it holds, Run (if any) executes and the stage
+// completes. An approval or an external event is a store write whose
+// condition is "is it recorded". The polling cadence is the caller's.
 type Stage struct {
-	Name string
-	Run  func(ctx context.Context) error
+	Name  string
+	Until func(ctx context.Context) (bool, error)
+	Run   func(ctx context.Context) error
 }
 
 // RunPipeline runs stages in order as one instance of wfType identified by
 // key (for a release, the version). A completed key is a no-op. A stage
 // that fails marks its step and the run failed and stops the run; the next
 // call for the same key restarts that instance and resumes from the failed
-// stage, never repeating a completed one.
+// stage, never repeating a completed one. A stage whose Until is false
+// leaves the run waiting and returns it with no error; calling again
+// continues the same attempt from that stage.
 func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key string, date BusinessDate, stages []Stage) (*RunRecord, error) {
 	existing, err := r.store.FindRunByKey(ctx, wfType, key)
 	if err != nil {
@@ -29,6 +37,7 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 	}
 
 	done := map[string]bool{}
+	waiting := map[string]bool{}
 	var run *RunRecord
 	if existing != nil {
 		run = existing
@@ -37,15 +46,22 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 			return nil, fmt.Errorf("reading steps: %w", err)
 		}
 		for _, s := range steps {
-			if s.Status == StatusCompleted {
+			switch s.Status {
+			case StatusCompleted:
 				done[s.StepName] = true
+			case StatusWaiting:
+				waiting[s.StepName] = true
 			}
 		}
-		if err := r.store.DeleteSteps(ctx, run.ID, StatusFailed, StatusRunning, StatusPending); err != nil {
-			return nil, fmt.Errorf("clearing failed steps: %w", err)
-		}
-		if err := r.store.RestartRun(ctx, run.ID); err != nil {
-			return nil, fmt.Errorf("restarting run: %w", err)
+		if run.Status != StatusWaiting {
+			// A new attempt after a failure or a crash.
+			if err := r.store.DeleteSteps(ctx, run.ID, StatusFailed, StatusRunning, StatusPending); err != nil {
+				return nil, fmt.Errorf("clearing failed steps: %w", err)
+			}
+			if err := r.store.RestartRun(ctx, run.ID); err != nil {
+				return nil, fmt.Errorf("restarting run: %w", err)
+			}
+			run.Status = StatusRunning
 		}
 	} else {
 		now := time.Now()
@@ -71,7 +87,30 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 			continue
 		}
 		t0 := time.Now()
-		stageErr := st.Run(ctx)
+		var stageErr error
+		if st.Until != nil {
+			holds, err := st.Until(ctx)
+			switch {
+			case err != nil:
+				stageErr = err
+			case !holds:
+				return r.park(ctx, run, st.Name, waiting[st.Name])
+			case waiting[st.Name]:
+				// The condition now holds: the waiting step gives way to the real one.
+				if err := r.store.DeleteSteps(ctx, run.ID, StatusWaiting); err != nil {
+					return nil, fmt.Errorf("clearing waiting step: %w", err)
+				}
+			}
+		}
+		if run.Status == StatusWaiting {
+			if err := r.store.ResumeRun(ctx, run.ID); err != nil {
+				return nil, fmt.Errorf("resuming run: %w", err)
+			}
+			run.Status = StatusRunning
+		}
+		if stageErr == nil && st.Run != nil {
+			stageErr = st.Run(ctx)
+		}
 		step := &StepResult{
 			ID:         uuid.New().String(),
 			RunID:      run.ID,
@@ -102,5 +141,24 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 		return completed, nil
 	}
 	run.Status = StatusCompleted
+	return run, nil
+}
+
+// park leaves the run waiting on stage: the waiting step is recorded the
+// first time only, so its CreatedAt is when the wait began, and a run
+// already waiting is not rewritten.
+func (r *Runner) park(ctx context.Context, run *RunRecord, stage string, alreadyWaiting bool) (*RunRecord, error) {
+	if !alreadyWaiting {
+		step := &StepResult{ID: uuid.New().String(), RunID: run.ID, StepName: stage, Status: StatusWaiting, CreatedAt: time.Now()}
+		if err := r.store.RecordStep(ctx, step); err != nil {
+			return nil, fmt.Errorf("recording step %s: %w", stage, err)
+		}
+	}
+	if run.Status != StatusWaiting {
+		if err := r.store.WaitRun(ctx, run.ID); err != nil {
+			return nil, fmt.Errorf("parking run: %w", err)
+		}
+		run.Status = StatusWaiting
+	}
 	return run, nil
 }

@@ -1,6 +1,6 @@
 # gobank-workflow
 
-Banking workflow engine using [go-workflows](https://github.com/cschleiden/go-workflows) for orchestrated processes and scheduled tasks.
+Workflow engine for the gobank family: definitions drawn from the code, instances keyed by business date or version, step results that are domain figures, state in pglike under the bank's own versioned schema.
 
 Part of the [gobank](https://git.bytestone.uk/hum3/gobank) family of libraries.
 

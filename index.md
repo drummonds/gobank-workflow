@@ -7,6 +7,7 @@ Banking workflow engine -- idempotent daily processing, business date management
 - [Demo app](app/) -- the workflow engine as an app, running in your browser: Workflows menu with instances and definitions, a simulation driver to make days happen, and a DB explorer over the live schema
 - [Daily processing demo](demo/index.html) -- interactive simulation of daily workflow processing with timing chart
 - [Release pipeline demo](demo/deploy.html) -- step through shipping a new gobank version; inject a failure and watch the resume retry only the failed stage
+- [Comparison with other workflow engines](comparison.html) -- Go libraries and the larger systems (Temporal, Camunda, Flowable, Spring Batch) set against this one: feature matrices, the closest relatives, and the gaps worth closing
 - [Changelog](CHANGELOG.html)
 - [Roadmap](ROADMAP.html)
 

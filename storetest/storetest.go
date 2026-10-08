@@ -88,3 +88,34 @@ func RestartAndStepStatus(t *testing.T, s wf.Store) {
 		t.Fatalf("DeleteSteps with no statuses should clear all, got %d", len(steps))
 	}
 }
+
+// WaitAndResume checks the waiting transitions: WaitRun parks a run,
+// ResumeRun continues the same attempt, so StartedAt is kept where
+// RestartRun would reset it.
+func WaitAndResume(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	started := time.Date(2026, time.May, 3, 9, 0, 0, 0, time.UTC)
+	run := &wf.RunRecord{ID: "w1", WorkflowType: wf.WorkflowRelease, BusinessDate: wf.NewBusinessDate(2026, time.May, 3), Key: "v2", Status: wf.StatusRunning, StartedAt: started, CreatedAt: started}
+	if err := s.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WaitRun(ctx, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetRun(ctx, "w1")
+	if got.Status != wf.StatusWaiting || !got.CompletedAt.IsZero() || !got.StartedAt.Equal(started) {
+		t.Fatalf("WaitRun should park the run, got %+v", got)
+	}
+	counts, _ := s.CountRuns(ctx)
+	if counts[wf.WorkflowRelease][wf.StatusWaiting] != 1 {
+		t.Fatalf("waiting runs should be counted, got %+v", counts)
+	}
+	if err := s.ResumeRun(ctx, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetRun(ctx, "w1")
+	if got.Status != wf.StatusRunning || got.Error != "" || !got.StartedAt.Equal(started) {
+		t.Fatalf("ResumeRun should continue the same attempt, got %+v", got)
+	}
+}
