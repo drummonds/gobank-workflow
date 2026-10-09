@@ -24,7 +24,7 @@ with a consumer now.
       there is no `Every` on the stage. Re-entry continues the same
       attempt (`ResumeRun`), where a retry starts a new one
       (`RestartRun`)
-- [ ] Writing workflows: a documentation section that is the authoring
+- [x] (unreleased) Writing workflows: a documentation section that is the authoring
       contract, for a human or an agent writing the next workflow from it
       alone. What a definition is (name, instance key, steps with
       descriptions and source links); what a stage is (`Run`, or `Until`
@@ -37,9 +37,11 @@ with a consumer now.
       gobank-deploy's three flows); how to draw it (`cmd/defd2`). A
       worked example and a checklist, rendered by `docs:build`, and the
       consuming projects' `CLAUDE.md` point at it so an agent loads it
-      before writing a flow. Open: whether the worked example is the
-      engine's own `release` demo or gobank-deploy's drill, which has
-      every feature the contract names
+      before writing a flow. Decided: the worked example is neither the
+      `release` demo nor the drill but a promotion pipeline compiled as
+      `example_test.go`, so it cannot drift; the drill is referenced.
+      Still to do: gobank-deploy's `CLAUDE.md` pointer, and its three
+      harnesses onto `runnertest` once this ships
 - [ ] Purpose and revision: two levels around the workflow, so the
       hierarchy is purpose → workflow → revision → instance → step. A
       `Purpose` (name, description, instance key) is what is achieved;

@@ -74,6 +74,7 @@ tasks:
       - mkdir -p docs
       - task-plus md2html --file index.md --dst docs
       - task-plus md2html --file README.md --dst docs
+      - task-plus md2html --file writing-workflows.md --dst docs
       - task-plus md2html --file CHANGELOG.md --dst docs
       - task-plus md2html --file ROADMAP.md --dst docs
       - for f in research/*.md; do task-plus md2html --file "$f" --dst docs --label Research; done

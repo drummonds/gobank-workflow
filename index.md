@@ -7,6 +7,7 @@ Banking workflow engine -- idempotent daily processing, business date management
 - [Demo app](app/) -- the workflow engine as an app, running in your browser: Workflows menu with instances and definitions, a simulation driver to make days happen, and a DB explorer over the live schema
 - [Daily processing demo](demo/index.html) -- interactive simulation of daily workflow processing with timing chart
 - [Release pipeline demo](demo/deploy.html) -- step through shipping a new gobank version; inject a failure and watch the resume retry only the failed stage
+- [Writing workflows](writing-workflows.html) -- the authoring contract: definitions, stages and waiting, resume and what it demands of a stage, what the host supplies, testing, drawing, a worked example and a checklist
 - [Comparison with other workflow engines](comparison.html) -- Go libraries and the larger systems (Temporal, Camunda, Flowable, Spring Batch) set against this one: feature matrices, the closest relatives, and the gaps worth closing
 - [Changelog](CHANGELOG.html)
 - [Roadmap](ROADMAP.html)
@@ -54,9 +55,12 @@ An instance moves through these states:
 | State | Meaning | Set by |
 |---|---|---|
 | `pending` | created, not yet started | `Store.CreateRun` |
-| `running` | processing the date | `Runner.RunDaily` on start |
+| `running` | processing the date, or a pipeline stage | `Runner.RunDaily` on start; `Store.ResumeRun` when a waited-on condition holds |
+| `waiting` | parked on a stage's `Until` condition; the host's next call re-enters the same attempt | `Store.WaitRun` |
 | `completed` | every step recorded; the date will never be re-run | `Store.CompleteRun` |
 | `failed` | the `DayProcessor` or a pipeline stage returned an error; the instance is eligible for a retry | `Store.FailRun` |
+
+[Writing workflows](writing-workflows.html) is the authoring contract for the next one.
 
 ## Schema
 
