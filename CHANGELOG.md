@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
+ - update documentation
+
 ### Added
 - Docs: writing workflows (`writing-workflows.md`), the authoring contract: vocabulary, declaring a definition, the stage outcome table, resume and what it demands, what the host supplies, testing, drawing, a worked example compiled as `example_test.go`, and a checklist
 - `runnertest` package: `OnlyRun` and `Steps`, the store checks a workflow's own tests make, extracted from gobank-deploy's three flow harnesses
