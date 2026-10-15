@@ -18,6 +18,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   change. Written for gobank-deploy's perf and scenario runs, whose
   created server bills while a failed run sits.
 
+### Roadmap
+- Compensation (#3): `Stage.Undo` reverses a completed stage when a
+  later one fails, so the next attempt starts from the first stage whose
+  work no longer stands
+
 ## [0.3.0] - 2026-10-09
 
  - update documentation
@@ -26,6 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Docs: writing workflows (`writing-workflows.md`), the authoring contract: vocabulary, declaring a definition, the stage outcome table, resume and what it demands, what the host supplies, testing, drawing, a worked example compiled as `example_test.go`, and a checklist
 - `runnertest` package: `OnlyRun` and `Steps`, the store checks a workflow's own tests make, extracted from gobank-deploy's three flow harnesses
 
+### Roadmap
+- Writing workflows: the authoring contract as a documentation section,
+  with a worked example compiled as `example_test.go` and the
+  `runnertest` kit
+
 ## [0.2.0] - 2026-10-08
 
  - Release prep
@@ -33,6 +43,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - Waiting stages: `Stage.Until` is a condition the stage waits on. While it is false the run is parked as `waiting` (a new run and step status) and `RunPipeline` returns; the caller's next call re-evaluates it and continues the same attempt, so a wait survives a restart and only the status is persisted. Once it holds, `Run` executes if set. `Store.WaitRun` and `Store.ResumeRun` are the transitions; no schema change
 - Docs: comparison with other workflow engines (`research/comparison.md`): Go libraries and the larger systems set against this one, with feature matrices, the closest relatives and a table of gaps and candidate additions
+
+### Roadmap
+- Waiting stages: `Stage.Until`, one mechanism for durable waits and
+  human tasks; the caller's tick re-enters waiting runs
 
 ## [0.1.3] - 2026-09-27
 
@@ -54,6 +68,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 - A retry after a failed run no longer leaves two instances for one date in the memory store, and is no longer rejected by the SQL store's unique index
 
+### Roadmap
+- Pipelines: `RunPipeline`, an instance keyed by version whose steps
+  are the stages, resumed from the failed stage; d2 from the registry
+  (`cmd/defd2`); the demo app
+
 ## [0.1.2] - 2026-09-25
 
  - Schema versions, workflow definitions with instance counts by state
@@ -65,6 +84,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - SQL store moved to the `sqlstore` package (`sqlstore.New`, `sqlstore.Store`); the core package no longer links database drivers, which keeps the WASM demo small
+
+### Roadmap
+- End-of-day processing: `RunDaily` idempotent per business date,
+  `CatchUp` over a gap, the SQL store with its versioned schema, the
+  `Definitions` registry
 
 ## [0.1.1] - 2026-09-25
 
