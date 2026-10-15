@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-15
+
+ - Compensation: Stage.Undo reverses a completed stage when a later one fails (#3)
+
 ### Added
 - Compensation (#3): `Stage.Undo` reverses a completed stage's work when
   a later stage fails. The runner undoes the completed stages before the
