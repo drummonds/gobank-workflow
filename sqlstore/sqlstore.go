@@ -152,6 +152,11 @@ func (s *Store) DeleteSteps(ctx context.Context, runID string, statuses ...wf.Ru
 	return nil
 }
 
+func (s *Store) DeleteStep(ctx context.Context, runID, stepName string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_steps WHERE run_id = ? AND step_name = ?`, runID, stepName)
+	return err
+}
+
 func (s *Store) CompleteRun(ctx context.Context, id string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.ExecContext(ctx,

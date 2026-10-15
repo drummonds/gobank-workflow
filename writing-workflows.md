@@ -13,7 +13,7 @@ compiled and run by `go test`, so it cannot drift from the engine.
 | workflow | a kind of work the engine can run, declared once in code | `Definition`, registered in `Definitions` |
 | instance | one run of a workflow, identified within its type by its key | `RunRecord`; `Key` for keyed workflows, `BusinessDate` for date-keyed |
 | step | one unit recorded against an instance: a stage, or one account's end of day | `StepResult` |
-| stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both | `Stage` |
+| stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both, and an `Undo` when its work must not outlive a failed run | `Stage` |
 | attempt | one call of the runner for an instance; a retry is a new attempt at the same instance, never a new instance | `StartedAt` is the attempt's start |
 
 Purpose (the level above workflow) and revision (a workflow's step list
@@ -43,7 +43,8 @@ carries, so a restart finds the same instance.
 A pipeline is `Runner.RunPipeline(ctx, type, key, date, stages)`. Each
 stage runs in order and is recorded as a step with the stage's name. A
 stage has a `Run`, an `Until`, or both: `Until` is a condition the stage
-waits on, and `Run` executes once it holds.
+waits on, and `Run` executes once it holds. `Undo` reverses the stage's
+work when a later stage fails.
 
 | `Until` | `Run` | Step recorded | Run status | `RunPipeline` returns |
 |---|---|---|---|---|
@@ -57,6 +58,22 @@ waits on, and `Run` executes once it holds.
 | completed in an earlier attempt | not called | kept | continues | |
 | after the last stage | | | completed | the run, nil |
 | key already completed | not called | | | nil, nil |
+
+When a stage fails, the completed stages before it are undone in reverse
+order, nearest first, each by its own `Undo`; a stage without one keeps
+its step and its work.
+
+| Completed stage before the failure | `Undo` | Step | The undoing |
+|---|---|---|---|
+| has no `Undo` | not called | kept | passes over it |
+| `Undo` returns nil | called | removed | continues to the one before |
+| `Undo` returns error | called | kept, its work may still stand | stops; the error is reported with the failure |
+
+The run's error names the failed stage, then what was undone and any
+undo that failed: `days: the demo stopped answering (undone: add,
+create); undo add: delete server: forbidden`. Give a stage an `Undo` when
+its work bills or blocks while the run sits failed: a server created, a
+lock taken. A tag pushed or a figure recorded is left to stand.
 
 A waiting run is parked, not held: `RunPipeline` returns, and the host
 calls it again on its own tick. The cadence belongs to the host, so there
@@ -75,7 +92,7 @@ the same way, but it continues the same attempt: nothing is cleared and
 
 | Call for an existing instance | Steps cleared | Run | Stages run |
 |---|---|---|---|
-| after a failure or a crash (`failed`, `running`, `pending`) | failed, running, pending | `RestartRun`: new attempt, `StartedAt` now | the first not completed, onwards |
+| after a failure or a crash (`failed`, `running`, `pending`) | failed, running, pending; the undone ones went when they were undone | `RestartRun`: new attempt, `StartedAt` now | the first not completed, onwards |
 | while waiting | none | `ResumeRun` once a condition holds, same attempt | the waiting one, onwards |
 | after completion | | | none; the call is a no-op |
 
@@ -84,6 +101,7 @@ This is what resume demands of a stage:
 - **Idempotent.** A stage may run again after a crash that lost its step. Make its effect safe to repeat: create only when absent, push only when not already pushed.
 - **State on the system under control, not in the run.** The run records that a stage completed, nothing more. What the stage made (a server, a tag, a figure) lives where it belongs and is found again from there.
 - **Resumable from any stage.** A later stage cannot assume an earlier one ran in this process. Anything it needs, it reads back.
+- **Undone when it must not outlive a failure.** A stage whose work bills or blocks while the run sits failed has an `Undo` that removes it; the next attempt then makes it again. Its `Undo` is as idempotent as its `Run`: deleting what is already gone is not an error.
 - **Its own record, if it has one.** A workflow with domain figures to keep (a drill's readings, a performance run's rates) keeps them in its own table against the run's id, found through `FindRunByKey`.
 
 ## What the store records and what the host supplies
@@ -175,7 +193,8 @@ pattern above: one key, the store read back through `runnertest`.
 - [ ] The instance key comes from the system under control
 - [ ] Each stage is idempotent and reads back what it needs
 - [ ] Waits are `Until` conditions, not sleeps
+- [ ] A stage whose work bills or blocks has an `Undo`
 - [ ] `Now` and `Sleep` are injectable with real defaults
-- [ ] A test for the happy path, one for a failure resumed, one per waiting stage
+- [ ] A test for the happy path, one for a failure resumed, one per waiting stage, one for a failure undone where a stage has an `Undo`
 - [ ] Domain figures in the workflow's own table against the run id
 - [ ] The host ticks waiting runs and shows the pages

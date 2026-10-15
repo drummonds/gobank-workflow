@@ -48,6 +48,10 @@ type Store interface {
 	// them when no status is given.
 	DeleteSteps(ctx context.Context, runID string, statuses ...RunStatus) error
 
+	// DeleteStep removes a run's steps with the given name: a stage that
+	// was undone, so the next attempt runs it again.
+	DeleteStep(ctx context.Context, runID, stepName string) error
+
 	// ListRuns returns recent runs, most recent first.
 	ListRuns(ctx context.Context, limit int) ([]RunRecord, error)
 

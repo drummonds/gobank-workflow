@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Compensation (#3): `Stage.Undo` reverses a completed stage's work when
+  a later stage fails. The runner undoes the completed stages before the
+  failure in reverse order, nearest first, removes each undone stage's
+  step so the next attempt runs it again, and names what was undone in
+  the run's error; an `Undo` that fails is reported, keeps its step and
+  stops the undoing there. A stage without `Undo` keeps its step and its
+  work as before. `Store.DeleteStep` removes a run's steps by name, in
+  the memory and SQL stores and the `storetest` contract; no schema
+  change. Written for gobank-deploy's perf and scenario runs, whose
+  created server bills while a failed run sits.
+
 ## [0.3.0] - 2026-10-09
 
  - update documentation

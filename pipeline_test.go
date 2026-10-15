@@ -276,3 +276,136 @@ func TestRunPipelineConditionErrorFailsTheStage(t *testing.T) {
 		t.Fatalf("steps = %+v", steps)
 	}
 }
+
+// --- Runner: compensation -------------------------------------------------
+
+// undoStages is create, add, days and remove: create and add can be undone
+// and record it in order; days fails while *fail is set.
+func undoStages(calls map[string]int, undone *[]string, fail *bool, undoErr error) []Stage {
+	record := func(name string) func(context.Context) error {
+		return func(context.Context) error { calls[name]++; return nil }
+	}
+	undo := func(name string) func(context.Context) error {
+		return func(context.Context) error {
+			*undone = append(*undone, name)
+			if name == "add" && undoErr != nil {
+				return undoErr
+			}
+			return nil
+		}
+	}
+	return []Stage{
+		{Name: "create", Run: record("create"), Undo: undo("create")},
+		{Name: "add", Run: record("add"), Undo: undo("add")},
+		{Name: "days", Run: func(context.Context) error {
+			calls["days"]++
+			if *fail {
+				*fail = false
+				return errors.New("the demo stopped answering")
+			}
+			return nil
+		}},
+		{Name: "remove", Run: record("remove")},
+	}
+}
+
+// When a stage fails, every completed stage that can be undone is undone
+// in reverse, and its step goes with it, so the next attempt starts from
+// the first stage whose work no longer stands. The run's error says what
+// failed and what was undone.
+func TestRunPipelineUndoesCompletedStagesOnFailure(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	calls, fail := map[string]int{}, true
+	var undone []string
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.October, 15)
+	_, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, undoStages(calls, &undone, &fail, nil))
+	if err == nil || !strings.Contains(err.Error(), "days: the demo stopped answering") || !strings.Contains(err.Error(), "undone: add, create") {
+		t.Fatalf("err = %v; want the failure and what was undone", err)
+	}
+	if strings.Join(undone, " ") != "add create" {
+		t.Errorf("undone = %v; want the completed stages in reverse", undone)
+	}
+	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "perf large")
+	if failed == nil || failed.Status != StatusFailed || !strings.Contains(failed.Error, "undone: add, create") {
+		t.Fatalf("run = %+v; want failed, saying what was undone", failed)
+	}
+	steps, _ := store.ListSteps(ctx, failed.ID)
+	if len(steps) != 1 || steps[0].StepName != "days" || steps[0].Status != StatusFailed {
+		t.Fatalf("steps after failure = %+v; want only the failed step, the undone ones gone", steps)
+	}
+	if calls["remove"] != 0 {
+		t.Error("stages after the failure must not run")
+	}
+
+	rec, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, undoStages(calls, &undone, &fail, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.ID != failed.ID || rec.Status != StatusCompleted {
+		t.Fatalf("retry should complete the same instance, got %+v", rec)
+	}
+	if calls["create"] != 2 || calls["add"] != 2 || calls["days"] != 2 || calls["remove"] != 1 {
+		t.Errorf("the next attempt starts from the first undone stage: %v", calls)
+	}
+	steps, _ = store.ListSteps(ctx, rec.ID)
+	if len(steps) != 4 {
+		t.Errorf("steps after retry = %+v; want every stage recorded once", steps)
+	}
+}
+
+// A stage without an Undo keeps its step, as before: the next attempt
+// resumes after it, and the undoing of later stages does not reach past
+// it in what is reported.
+func TestRunPipelineKeepsStagesWithoutUndo(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	calls, fail := map[string]int{}, true
+	var undone []string
+	stages := undoStages(calls, &undone, &fail, nil)
+	stages[0].Undo = nil // create is kept
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.October, 15)
+	_, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, stages)
+	if err == nil || !strings.Contains(err.Error(), "undone: add") || strings.Contains(err.Error(), "create") {
+		t.Fatalf("err = %v; want add undone and create not mentioned", err)
+	}
+	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "perf large")
+	steps, _ := store.ListSteps(ctx, failed.ID)
+	if len(steps) != 2 || steps[0].StepName != "create" || steps[0].Status != StatusCompleted || steps[1].StepName != "days" {
+		t.Fatalf("steps after failure = %+v; want create kept and days failed", steps)
+	}
+	stages = undoStages(calls, &undone, &fail, nil)
+	stages[0].Undo = nil
+	if _, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, stages); err != nil {
+		t.Fatal(err)
+	}
+	if calls["create"] != 1 || calls["add"] != 2 {
+		t.Errorf("the next attempt resumes after the kept stage: %v", calls)
+	}
+}
+
+// An undo that fails is reported with the failure, keeps its step since
+// its work may still stand, and stops the undoing there: the stages
+// before it are built on by it and are not touched.
+func TestRunPipelineReportsAnUndoThatFails(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	calls, fail := map[string]int{}, true
+	var undone []string
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.October, 15)
+	_, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, undoStages(calls, &undone, &fail, errors.New("delete server: forbidden")))
+	if err == nil || !strings.Contains(err.Error(), "days: the demo stopped answering") || !strings.Contains(err.Error(), "undo add: delete server: forbidden") {
+		t.Fatalf("err = %v; want the failure and the undo's error", err)
+	}
+	if strings.Join(undone, " ") != "add" {
+		t.Errorf("undone = %v; want the undoing stopped at the one that failed", undone)
+	}
+	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "perf large")
+	steps, _ := store.ListSteps(ctx, failed.ID)
+	if len(steps) != 3 || steps[0].StepName != "create" || steps[1].StepName != "add" || steps[1].Status != StatusCompleted || steps[2].Status != StatusFailed {
+		t.Fatalf("steps after failure = %+v; want create and add kept, days failed", steps)
+	}
+}

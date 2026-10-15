@@ -89,6 +89,34 @@ func RestartAndStepStatus(t *testing.T, s wf.Store) {
 	}
 }
 
+// UndoneStep checks DeleteStep: a run's steps with that name go, the
+// rest stay, and another run's step of the same name is untouched.
+func UndoneStep(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	d := wf.NewBusinessDate(2026, time.October, 15)
+	for _, id := range []string{"u1", "u2"} {
+		run := &wf.RunRecord{ID: id, WorkflowType: wf.WorkflowRelease, BusinessDate: d, Key: id, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+		if err := s.CreateRun(ctx, run); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"create", "add"} {
+			if err := s.RecordStep(ctx, &wf.StepResult{ID: id + "-" + name, RunID: id, StepName: name, Status: wf.StatusCompleted, CreatedAt: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := s.DeleteStep(ctx, "u1", "create"); err != nil {
+		t.Fatal(err)
+	}
+	if steps, _ := s.ListSteps(ctx, "u1"); len(steps) != 1 || steps[0].StepName != "add" {
+		t.Fatalf("u1 after DeleteStep create = %+v; want add only", steps)
+	}
+	if steps, _ := s.ListSteps(ctx, "u2"); len(steps) != 2 {
+		t.Fatalf("u2 should be untouched, got %+v", steps)
+	}
+}
+
 // WaitAndResume checks the waiting transitions: WaitRun parks a run,
 // ResumeRun continues the same attempt, so StartedAt is kept where
 // RestartRun would reset it.

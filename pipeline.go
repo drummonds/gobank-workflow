@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,10 +15,16 @@ import (
 // re-evaluates it; once it holds, Run (if any) executes and the stage
 // completes. An approval or an external event is a store write whose
 // condition is "is it recorded". The polling cadence is the caller's.
+//
+// Undo, when set, reverses the stage's work once a later stage has
+// failed: a server created is deleted. The undone stage's step is
+// removed, so the next attempt runs it again. A stage without Undo keeps
+// its step and its work, and the next attempt resumes after it.
 type Stage struct {
 	Name  string
 	Until func(ctx context.Context) (bool, error)
 	Run   func(ctx context.Context) error
+	Undo  func(ctx context.Context) error
 }
 
 // RunPipeline runs stages in order as one instance of wfType identified by
@@ -27,6 +34,13 @@ type Stage struct {
 // stage, never repeating a completed one. A stage whose Until is false
 // leaves the run waiting and returns it with no error; calling again
 // continues the same attempt from that stage.
+//
+// When a stage fails, the completed stages before it that have an Undo
+// are undone in reverse order, nearest first, and their steps removed,
+// so the next attempt starts from the first stage whose work no longer
+// stands. An Undo that fails is reported with the failure, keeps its step
+// since its work may still stand, and stops the undoing there. The run's
+// error names the failed stage, what was undone and any undo that failed.
 func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key string, date BusinessDate, stages []Stage) (*RunRecord, error) {
 	existing, err := r.store.FindRunByKey(ctx, wfType, key)
 	if err != nil {
@@ -82,7 +96,7 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 		}
 	}
 
-	for _, st := range stages {
+	for i, st := range stages {
 		if done[st.Name] {
 			continue
 		}
@@ -128,9 +142,11 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 		}
 		if stageErr != nil {
 			msg := fmt.Sprintf("%s: %v", st.Name, stageErr)
+			msg += r.undo(ctx, run.ID, stages[:i], done)
 			_ = r.store.FailRun(ctx, run.ID, msg)
 			return nil, fmt.Errorf("%s %s: %s", wfType, key, msg)
 		}
+		done[st.Name] = true
 	}
 
 	if err := r.store.CompleteRun(ctx, run.ID); err != nil {
@@ -161,4 +177,36 @@ func (r *Runner) park(ctx context.Context, run *RunRecord, stage string, already
 		run.Status = StatusWaiting
 	}
 	return run, nil
+}
+
+// undo reverses the completed stages among before that have an Undo, in
+// reverse order, removing each undone stage's step. It stops at the
+// first Undo that fails. What it did is returned as a suffix for the
+// run's error: " (undone: add, create)" and "; undo add: <error>".
+func (r *Runner) undo(ctx context.Context, runID string, before []Stage, done map[string]bool) string {
+	var undone []string
+	var failed error
+	for i := len(before) - 1; i >= 0; i-- {
+		st := before[i]
+		if !done[st.Name] || st.Undo == nil {
+			continue
+		}
+		if err := st.Undo(ctx); err != nil {
+			failed = fmt.Errorf("undo %s: %w", st.Name, err)
+			break
+		}
+		if err := r.store.DeleteStep(ctx, runID, st.Name); err != nil {
+			failed = fmt.Errorf("undo %s: removing its step: %w", st.Name, err)
+			break
+		}
+		undone = append(undone, st.Name)
+	}
+	suffix := ""
+	if len(undone) > 0 {
+		suffix += " (undone: " + strings.Join(undone, ", ") + ")"
+	}
+	if failed != nil {
+		suffix += "; " + failed.Error()
+	}
+	return suffix
 }

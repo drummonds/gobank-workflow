@@ -318,6 +318,7 @@ func TestKeyedInstancesAndRestart(t *testing.T) {
 	storetest.KeyedInstances(t, store)
 	storetest.RestartAndStepStatus(t, store)
 	storetest.WaitAndResume(t, store)
+	storetest.UndoneStep(t, store)
 }
 
 func TestSchemaHistoryIsThreeVersions(t *testing.T) {

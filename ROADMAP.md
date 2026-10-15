@@ -9,6 +9,12 @@ with a consumer now.
 
 ## Now
 
+- [x] (unreleased) Compensation: `Stage.Undo` reverses a completed stage
+      when a later one fails, the undone steps go so the next attempt
+      starts from the first stage whose work no longer stands, and the
+      run's error names what was undone. The "only if observed" item
+      from Later, observed not as a half-shipped release but as a
+      gobank-deploy perf box billing while its failed run sat (#3)
 - [x] (unreleased) Waiting stages: a stage may wait on a condition
       (`Until func(ctx) (bool, error)`) before running. A false
       condition marks the step and run `waiting` and returns; a caller's
@@ -106,8 +112,7 @@ with a consumer now.
   response)
 - Account opening / closing lifecycle
 - Regulatory reporting generation
-- Per-step retry with backoff, when a network stage hurts; compensation
-  (`Stage.Undo`) only if a half-shipped release is ever observed
+- Per-step retry with backoff, when a network stage hurts
 - Resume mid-pass for the daily run, with gobank's stage 3d
 
 ## Done

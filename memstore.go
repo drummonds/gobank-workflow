@@ -150,6 +150,21 @@ func (m *MemStore) DeleteSteps(ctx context.Context, runID string, statuses ...Ru
 	return nil
 }
 
+func (m *MemStore) DeleteStep(ctx context.Context, runID, stepName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	kept := m.steps[:0]
+	for _, st := range m.steps {
+		if st.RunID == runID && st.StepName == stepName {
+			continue
+		}
+		kept = append(kept, st)
+	}
+	m.steps = kept
+	return nil
+}
+
 func (m *MemStore) CompleteRun(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
