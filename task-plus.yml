@@ -8,3 +8,5 @@ pages_build:
 pages_deploy:
   - type: rsync
     site: gobank-workflow
+maturity:
+  code: 1
