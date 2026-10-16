@@ -20,8 +20,9 @@ type Store interface {
 	FindRunByKey(ctx context.Context, wfType WorkflowType, key string) (*RunRecord, error)
 
 	// RestartRun puts a failed run back to running for a new attempt:
-	// status running, started now, error cleared.
-	RestartRun(ctx context.Context, id string) error
+	// status running, started now, error cleared, and the revision the
+	// attempt runs recorded.
+	RestartRun(ctx context.Context, id string, rev Revision) error
 
 	// WaitRun parks a run on a stage's condition: status waiting, the
 	// attempt's StartedAt kept.

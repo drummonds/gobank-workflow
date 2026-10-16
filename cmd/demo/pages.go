@@ -150,6 +150,20 @@ func (a *App) instanceHTML(ctx context.Context, id string) (string, bool) {
 	if run.Error != "" {
 		fmt.Fprintf(&b, `<tr><th>Error</th><td class="has-text-danger">%s</td></tr>`, html.EscapeString(run.Error))
 	}
+	def := definitionOf(run.WorkflowType)
+	current := def == nil || run.Revision.ID == "" || run.Revision.ID == def.Revision().ID
+	switch {
+	case run.Revision.ID == "":
+		b.WriteString(`<tr><th>Revision</th><td>— <span class="has-text-grey">(recorded before revisions)</span></td></tr>`)
+	case current:
+		fmt.Fprintf(&b, `<tr><th>Revision</th><td><code>%s</code> <span class="has-text-grey">(the current revision)</span></td></tr>`, run.Revision.ID)
+	default:
+		fmt.Fprintf(&b, `<tr><th>Revision</th><td><code>%s</code> <span class="tag is-warning is-light">not the current revision</span> <span class="has-text-grey">the code now runs a different step list</span></td></tr>`, run.Revision.ID)
+	}
+	var ran []wf.Step
+	if def != nil {
+		ran = def.StepsFor(run.Revision)
+	}
 	stageSteps := len(steps) > 0 && steps[0].AccountID == ""
 	if stageSteps {
 		completed := 0
@@ -158,7 +172,7 @@ func (a *App) instanceHTML(ctx context.Context, id string) (string, bool) {
 				completed++
 			}
 		}
-		fmt.Fprintf(&b, `<tr><th>Steps</th><td>%d of %d stages completed</td></tr>`, completed, len(releaseDefinition().Steps))
+		fmt.Fprintf(&b, `<tr><th>Steps</th><td>%d of %d stages completed</td></tr>`, completed, len(ran))
 	} else {
 		var interest int64
 		for _, s := range steps {
@@ -175,14 +189,14 @@ func (a *App) instanceHTML(ctx context.Context, id string) (string, bool) {
 		for _, s := range steps {
 			byName[s.StepName] = s
 		}
-		for i, def := range releaseDefinition().Steps {
-			st, ran := byName[def.Name]
+		for i, stage := range ran {
+			st, recorded := byName[stage.Name]
 			status, dur, errMsg := `<span class="tag is-light">not run</span>`, "—", ""
-			if ran {
+			if recorded {
 				status, dur, errMsg = statusTag(st.Status), time.Duration(st.DurationNs).Round(time.Microsecond).String(), st.Error
 			}
 			fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong> <span class="has-text-grey">%s</span> %s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td></tr>`,
-				i+1, def.Name, html.EscapeString(def.Description), sourceLink(def), status, dur, html.EscapeString(errMsg))
+				i+1, stage.Name, html.EscapeString(stage.Description), sourceLink(stage), status, dur, html.EscapeString(errMsg))
 		}
 		b.WriteString(`</tbody></table>`)
 	} else if len(steps) > 0 {
@@ -195,7 +209,10 @@ func (a *App) instanceHTML(ctx context.Context, id string) (string, bool) {
 		}
 		b.WriteString(`</tbody></table></div>`)
 	}
-	a.diagramHTML(&b, run.WorkflowType)
+	if current {
+		// The pre-rendered picture is of the current code.
+		a.diagramHTML(&b, run.WorkflowType)
+	}
 	fmt.Fprintf(&b, `<p><a href="workflows/instances/%s/diagram.d2">This instance as d2</a> — steps coloured by state; render with <code>d2 diagram.d2 out.svg</code>. <a href="internal/explorer/workflow_steps?filter=run_id&amp;value=%s">All steps in the DB explorer</a>.</p>`, run.ID, run.ID)
 	return b.String(), true
 }
@@ -207,15 +224,15 @@ func (a *App) definitionsHTML(ctx context.Context) string {
 	var b strings.Builder
 	b.WriteString(`<h1 class="title">Workflow definitions</h1><p class="subtitle">What the engine can run: each definition is a sequence of steps, and each instance is one run of it</p>`)
 	b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth">`)
-	b.WriteString(`<thead><tr><th>Type</th><th>Description</th><th>Instance key</th><th>Steps</th><th>Instances</th></tr></thead><tbody>`)
+	b.WriteString(`<thead><tr><th>Purpose</th><th>Type</th><th>Description</th><th>Instance key</th><th>Steps</th><th>Instances</th></tr></thead><tbody>`)
 	for _, d := range wf.Definitions {
 		c := counts[d.Type]
 		var names []string
 		for _, st := range d.Steps {
 			names = append(names, st.Name)
 		}
-		fmt.Fprintf(&b, `<tr><td><a href="workflows/definitions/%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%d <span class="has-text-grey">(%d completed, %d failed)</span></td></tr>`,
-			d.Type, d.Type, html.EscapeString(d.Description), d.InstanceKey, html.EscapeString(strings.Join(names, " → ")), c.Total(), c[wf.StatusCompleted], c[wf.StatusFailed])
+		fmt.Fprintf(&b, `<tr><td><strong>%s</strong><br><span class="has-text-grey">%s</span></td><td><a href="workflows/definitions/%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%d <span class="has-text-grey">(%d completed, %d failed)</span></td></tr>`,
+			html.EscapeString(d.Purpose.Name), html.EscapeString(d.Purpose.Description), d.Type, d.Type, html.EscapeString(d.Description), d.InstanceKey, html.EscapeString(strings.Join(names, " → ")), c.Total(), c[wf.StatusCompleted], c[wf.StatusFailed])
 	}
 	b.WriteString(`</tbody></table></div>`)
 	return b.String()
@@ -234,6 +251,7 @@ func (a *App) definitionHTML(ctx context.Context, t wf.WorkflowType) (string, bo
 	var b strings.Builder
 	fmt.Fprintf(&b, `<nav class="breadcrumb"><ul><li><a href="workflows/definitions">Definitions</a></li><li class="is-active"><a>%s</a></li></ul></nav>`, t)
 	fmt.Fprintf(&b, `<h1 class="title"><code>%s</code></h1><p class="subtitle">%s</p>`, t, html.EscapeString(def.Description))
+	fmt.Fprintf(&b, `<p><strong>Purpose:</strong> %s — %s</p>`, html.EscapeString(def.Purpose.Name), html.EscapeString(def.Purpose.Description))
 	fmt.Fprintf(&b, `<p><strong>Instance key:</strong> %s — one instance per %s.</p>`, def.InstanceKey, def.InstanceKey)
 	b.WriteString(`<h2 class="subtitle mt-4">Steps</h2>`)
 	b.WriteString(`<table class="table is-narrow is-striped"><thead><tr><th>#</th><th>Step</th><th>Does</th><th>Code</th></tr></thead><tbody>`)

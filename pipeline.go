@@ -50,6 +50,12 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 		return nil, nil
 	}
 
+	names := make([]string, len(stages))
+	for i, st := range stages {
+		names[i] = st.Name
+	}
+	rev := NewRevision(names)
+
 	done := map[string]bool{}
 	waiting := map[string]bool{}
 	var run *RunRecord
@@ -72,10 +78,11 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 			if err := r.store.DeleteSteps(ctx, run.ID, StatusFailed, StatusRunning, StatusPending); err != nil {
 				return nil, fmt.Errorf("clearing failed steps: %w", err)
 			}
-			if err := r.store.RestartRun(ctx, run.ID); err != nil {
+			if err := r.store.RestartRun(ctx, run.ID, rev); err != nil {
 				return nil, fmt.Errorf("restarting run: %w", err)
 			}
 			run.Status = StatusRunning
+			run.Revision = rev
 		}
 	} else {
 		now := time.Now()
@@ -84,6 +91,7 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 			WorkflowType: wfType,
 			BusinessDate: date,
 			Key:          key,
+			Revision:     rev,
 			Status:       StatusRunning,
 			StartedAt:    now,
 			CreatedAt:    now,

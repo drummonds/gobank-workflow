@@ -19,6 +19,9 @@ func NewRunner(store Store, processor DayProcessor) *Runner {
 	return &Runner{store: store, processor: processor}
 }
 
+// dailyRevision is RunDaily's step list: one end_of_day step per account.
+var dailyRevision = NewRevision([]string{"end_of_day"})
+
 // RunDaily processes a single business date idempotently.
 // Returns nil, nil if the date has already been completed.
 func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, error) {
@@ -34,7 +37,7 @@ func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, e
 	if existing != nil {
 		// A new attempt at the same instance: every account is reprocessed.
 		run = existing
-		if err := r.store.RestartRun(ctx, run.ID); err != nil {
+		if err := r.store.RestartRun(ctx, run.ID, dailyRevision); err != nil {
 			return nil, fmt.Errorf("restarting run: %w", err)
 		}
 		if err := r.store.DeleteSteps(ctx, run.ID); err != nil {
@@ -46,6 +49,7 @@ func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, e
 			ID:           uuid.New().String(),
 			WorkflowType: WorkflowDailyUpdate,
 			BusinessDate: date,
+			Revision:     dailyRevision,
 			Status:       StatusRunning,
 			StartedAt:    now,
 			CreatedAt:    now,
@@ -70,7 +74,7 @@ func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, e
 			ID:             uuid.New().String(),
 			RunID:          run.ID,
 			AccountID:      ar.AccountID,
-			StepName:       "end_of_day",
+			StepName:       dailyRevision.Steps[0],
 			Status:         StatusCompleted,
 			OpeningBalance: ar.OpeningBalance,
 			ClosingBalance: ar.ClosingBalance,

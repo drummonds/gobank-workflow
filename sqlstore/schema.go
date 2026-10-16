@@ -9,7 +9,16 @@ var Migrations = []db.Migration{
 	{Version: 1, Name: "workflow runs and steps", Phase: db.Expand, SQL: SchemaSQL},
 	{Version: 2, Name: "instance keys and step status", Phase: db.Expand, SQL: keysAndStepStatusSQL},
 	{Version: 3, Name: "drop date-only uniqueness", Phase: db.Contract, SQL: dropDateOnlyIndexSQL},
+	{Version: 4, Name: "run revisions", Phase: db.Expand, SQL: revisionsSQL},
 }
+
+// revisionsSQL (v4, expand) records on each run the revision its latest
+// attempt ran: the id, and the step names as a JSON array so the run
+// renders without the code that ran it. Runs from before v4 have neither.
+const revisionsSQL = `
+ALTER TABLE workflow_runs ADD COLUMN revision VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE workflow_runs ADD COLUMN step_names TEXT NOT NULL DEFAULT '';
+`
 
 // keysAndStepStatusSQL (v2, expand) adds the instance key so a keyed
 // workflow such as a release can have several instances on one business

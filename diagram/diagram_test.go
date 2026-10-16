@@ -87,3 +87,18 @@ func TestIDsAreSafeD2Identifiers(t *testing.T) {
 		}
 	}
 }
+
+func TestInstanceDrawsTheRevisionItRan(t *testing.T) {
+	run := wf.RunRecord{WorkflowType: wf.WorkflowRelease, Key: "v0.0.9", Status: wf.StatusCompleted,
+		Revision: wf.NewRevision([]string{"check", "tag", "publish"})}
+	steps := []wf.StepResult{{StepName: "check", Status: wf.StatusCompleted}, {StepName: "tag", Status: wf.StatusCompleted}, {StepName: "publish", Status: wf.StatusCompleted}}
+	src := Instance(release(t), run, steps)
+	for _, want := range []string{"check -> tag -> publish", `check: "check" {link: "https://`, `publish: "publish"`, "publish.class: completed"} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("missing %q in:\n%s", want, src)
+		}
+	}
+	if strings.Contains(src, "deploy_docs") {
+		t.Fatalf("a stage the run's revision did not have should not be drawn:\n%s", src)
+	}
+}

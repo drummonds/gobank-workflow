@@ -10,14 +10,17 @@ compiled and run by `go test`, so it cannot drift from the engine.
 
 | Term | Meaning | In code |
 |---|---|---|
+| purpose | what a workflow achieves; its workflows are the ways of achieving it, one purpose per workflow | `Purpose`, on `Definition` |
 | workflow | a kind of work the engine can run, declared once in code | `Definition`, registered in `Definitions` |
+| revision | a workflow's step list as the code had it for an attempt; the same names in the same order are the same revision | `Revision`, recorded on `RunRecord` |
 | instance | one run of a workflow, identified within its type by its key | `RunRecord`; `Key` for keyed workflows, `BusinessDate` for date-keyed |
 | step | one unit recorded against an instance: a stage, or one account's end of day | `StepResult` |
 | stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both, and an `Undo` when its work must not outlive a failed run | `Stage` |
 | attempt | one call of the runner for an instance; a retry is a new attempt at the same instance, never a new instance | `StartedAt` is the attempt's start |
 
-Purpose (the level above workflow) and revision (a workflow's step list
-as the code had it) are on the roadmap and not yet in code.
+An instance renders from the revision it recorded, not from the live
+definition, so it stays right after the code changes: `Definition.StepsFor`
+is its step list, described by the definition where a name still exists.
 
 ## Declaring a workflow
 
@@ -28,6 +31,7 @@ see it. Declare it next to the code that runs it and append it to
 | Field | What it is | Rule |
 |---|---|---|
 | `Type` | the workflow's name | lower snake case; unique across every program sharing a store |
+| `Purpose` | what the workflow achieves: a `Name` and a `Description` | share one `Purpose` value between the workflows that are ways of achieving the same thing |
 | `Description` | what one instance achieves and what a retry does | one or two sentences |
 | `InstanceKey` | what identifies one instance, as prose | "version", "environment@expiry", "business date" |
 | `Steps` | every step the runner will record, in order | `Name` matches the stage's `Name` exactly; `Description` says what it does; `Source` is an `https://` link to the code |
@@ -92,7 +96,7 @@ the same way, but it continues the same attempt: nothing is cleared and
 
 | Call for an existing instance | Steps cleared | Run | Stages run |
 |---|---|---|---|
-| after a failure or a crash (`failed`, `running`, `pending`) | failed, running, pending; the undone ones went when they were undone | `RestartRun`: new attempt, `StartedAt` now | the first not completed, onwards |
+| after a failure or a crash (`failed`, `running`, `pending`) | failed, running, pending; the undone ones went when they were undone | `RestartRun`: new attempt, `StartedAt` now, the stages' revision recorded | the first not completed, onwards |
 | while waiting | none | `ResumeRun` once a condition holds, same attempt | the waiting one, onwards |
 | after completion | | | none; the call is a no-op |
 

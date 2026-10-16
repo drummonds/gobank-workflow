@@ -5,6 +5,7 @@ package storetest
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -74,7 +75,7 @@ func RestartAndStepStatus(t *testing.T, s wf.Store) {
 	if len(steps) != 1 || steps[0].ID != "s1" {
 		t.Fatalf("only the failed step should be deleted, got %+v", steps)
 	}
-	if err := s.RestartRun(ctx, "r1"); err != nil {
+	if err := s.RestartRun(ctx, "r1", wf.NewRevision([]string{"s1", "s2"})); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.GetRun(ctx, "r1")
@@ -146,4 +147,41 @@ func WaitAndResume(t *testing.T, s wf.Store) {
 	if got.Status != wf.StatusRunning || got.Error != "" || !got.StartedAt.Equal(started) {
 		t.Fatalf("ResumeRun should continue the same attempt, got %+v", got)
 	}
+}
+
+// Revisions checks that a run's revision round-trips through every read,
+// and that RestartRun replaces it with the new attempt's.
+func Revisions(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	first := wf.NewRevision([]string{"check", "push origin", "tag"})
+	run := &wf.RunRecord{ID: "rev1", WorkflowType: wf.WorkflowRelease, BusinessDate: wf.NewBusinessDate(2026, time.October, 16), Key: "v3", Revision: first, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	if err := s.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	same := func(where string, got wf.Revision, want wf.Revision) {
+		t.Helper()
+		if got.ID != want.ID || !slices.Equal(got.Steps, want.Steps) {
+			t.Fatalf("%s revision = %+v, want %+v", where, got, want)
+		}
+	}
+	got, _ := s.GetRun(ctx, "rev1")
+	same("GetRun", got.Revision, first)
+	got, _ = s.FindRunByKey(ctx, wf.WorkflowRelease, "v3")
+	same("FindRunByKey", got.Revision, first)
+	runs, _ := s.ListRuns(ctx, 10)
+	for _, r := range runs {
+		if r.ID == "rev1" {
+			same("ListRuns", r.Revision, first)
+		}
+	}
+	if err := s.FailRun(ctx, "rev1", "tag: boom"); err != nil {
+		t.Fatal(err)
+	}
+	next := wf.NewRevision([]string{"check", "changelog", "tag"})
+	if err := s.RestartRun(ctx, "rev1", next); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetRun(ctx, "rev1")
+	same("after RestartRun", got.Revision, next)
 }

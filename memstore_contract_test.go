@@ -13,3 +13,4 @@ func TestMemStore_RestartAndStepStatus(t *testing.T) {
 }
 func TestMemStore_WaitAndResume(t *testing.T) { storetest.WaitAndResume(t, wf.NewMemStore()) }
 func TestMemStore_UndoneStep(t *testing.T)    { storetest.UndoneStep(t, wf.NewMemStore()) }
+func TestMemStore_Revisions(t *testing.T)     { storetest.Revisions(t, wf.NewMemStore()) }

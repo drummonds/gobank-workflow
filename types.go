@@ -61,7 +61,9 @@ type RunRecord struct {
 	BusinessDate BusinessDate
 	// Key identifies the instance within its type when the business date
 	// does not: the version for a release. Empty for date-keyed workflows.
-	Key         string
+	Key string
+	// Revision is the step list the latest attempt ran.
+	Revision    Revision
 	Status      RunStatus
 	StartedAt   time.Time
 	CompletedAt time.Time

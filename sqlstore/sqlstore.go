@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	db "git.bytestone.uk/hum3/gobank-db"
@@ -91,10 +92,14 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 		return err
 	}
 
+	stepNames, err := encodeSteps(run.Revision)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO workflow_runs (id, workflow_type, business_date, instance_key, status, started_at, error_message, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		run.ID, string(run.WorkflowType), run.BusinessDate.String(), run.Key,
+		`INSERT INTO workflow_runs (id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, error_message, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, string(run.WorkflowType), run.BusinessDate.String(), run.Key, run.Revision.ID, stepNames,
 		string(run.Status), run.StartedAt.UTC().Format(time.RFC3339Nano),
 		run.Error, run.CreatedAt.UTC().Format(time.RFC3339Nano),
 	)
@@ -103,30 +108,44 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 
 func (s *Store) GetRun(ctx context.Context, id string) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs WHERE id = ?`, id)
 }
 
 func (s *Store) FindRun(ctx context.Context, wfType wf.WorkflowType, date wf.BusinessDate) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs WHERE workflow_type = ? AND business_date = ? AND instance_key = ''`,
 		string(wfType), date.String())
 }
 
 func (s *Store) FindRunByKey(ctx context.Context, wfType wf.WorkflowType, key string) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs WHERE workflow_type = ? AND instance_key = ?`,
 		string(wfType), key)
 }
 
-func (s *Store) RestartRun(ctx context.Context, id string) error {
+func (s *Store) RestartRun(ctx context.Context, id string, rev wf.Revision) error {
+	stepNames, err := encodeSteps(rev)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE workflow_runs SET status = 'running', started_at = ?, completed_at = NULL, error_message = '' WHERE id = ?`,
-		now, id)
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE workflow_runs SET status = 'running', started_at = ?, completed_at = NULL, error_message = '', revision = ?, step_names = ? WHERE id = ?`,
+		now, rev.ID, stepNames, id)
 	return err
+}
+
+// encodeSteps is a revision's step names as stored: a JSON array, or
+// empty when the run has no revision.
+func encodeSteps(rev wf.Revision) (string, error) {
+	if len(rev.Steps) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(rev.Steps)
+	return string(b), err
 }
 
 func (s *Store) WaitRun(ctx context.Context, id string) error {
@@ -216,7 +235,7 @@ func (s *Store) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, e
 
 func (s *Store) ListRuns(ctx context.Context, limit int) ([]wf.RunRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -268,9 +287,9 @@ func scanRunFromRow(row scannable) (*wf.RunRecord, error) {
 	var wfType, dateStr, status string
 	var startedAt, completedAt sql.NullString
 	var createdAt string
-	var errMsg string
+	var errMsg, stepNames string
 
-	err := row.Scan(&r.ID, &wfType, &dateStr, &r.Key, &status, &startedAt, &completedAt, &errMsg, &createdAt)
+	err := row.Scan(&r.ID, &wfType, &dateStr, &r.Key, &r.Revision.ID, &stepNames, &status, &startedAt, &completedAt, &errMsg, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +297,11 @@ func scanRunFromRow(row scannable) (*wf.RunRecord, error) {
 	r.WorkflowType = wf.WorkflowType(wfType)
 	r.Status = wf.RunStatus(status)
 	r.Error = errMsg
+	if stepNames != "" {
+		if err := json.Unmarshal([]byte(stepNames), &r.Revision.Steps); err != nil {
+			return nil, err
+		}
+	}
 
 	if t, err := time.Parse("2006-01-02", dateStr); err == nil {
 		r.BusinessDate = wf.BusinessDateFrom(t)

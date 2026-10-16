@@ -319,10 +319,11 @@ func TestKeyedInstancesAndRestart(t *testing.T) {
 	storetest.RestartAndStepStatus(t, store)
 	storetest.WaitAndResume(t, store)
 	storetest.UndoneStep(t, store)
+	storetest.Revisions(t, store)
 }
 
-func TestSchemaHistoryIsThreeVersions(t *testing.T) {
-	if len(Migrations) != 3 || Migrations[1].Phase != db.Expand || Migrations[2].Phase != db.Contract {
-		t.Fatalf("expected v1 expand, v2 expand, v3 contract; got %+v", Migrations)
+func TestSchemaHistoryIsFourVersions(t *testing.T) {
+	if len(Migrations) != 4 || Migrations[1].Phase != db.Expand || Migrations[2].Phase != db.Contract || Migrations[3].Phase != db.Expand {
+		t.Fatalf("expected v1 expand, v2 expand, v3 contract, v4 expand; got %+v", Migrations)
 	}
 }

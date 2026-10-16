@@ -18,13 +18,13 @@ func Definition(d wf.Definition) string {
 	var b strings.Builder
 	b.WriteString("direction: right\n\n")
 	fmt.Fprintf(&b, "%s: %q {\n", id(string(d.Type)), fmt.Sprintf("%s — one instance per %s", d.Type, d.InstanceKey))
-	writeSteps(&b, d, nil)
+	writeSteps(&b, d.Steps)
 	b.WriteString("}\n")
 	return b.String()
 }
 
-// Instance draws a definition with each step in the state the instance
-// left it: completed, failed, or not run.
+// Instance draws the steps the instance ran, from its revision, each in
+// the state the instance left it: completed, failed, or not run.
 func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
 	byName := map[string]wf.StepResult{}
 	for _, s := range steps {
@@ -43,8 +43,9 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
 		name = run.BusinessDate.String()
 	}
 	fmt.Fprintf(&b, "%s: %q {\n", id(string(d.Type)), fmt.Sprintf("%s %s — %s", d.Type, name, run.Status))
-	writeSteps(&b, d, byName)
-	for _, st := range d.Steps {
+	ran := d.StepsFor(run.Revision)
+	writeSteps(&b, ran)
+	for _, st := range ran {
 		class := "not_run"
 		if s, ok := byName[st.Name]; ok {
 			switch s.Status {
@@ -62,9 +63,9 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
 	return b.String()
 }
 
-func writeSteps(b *strings.Builder, d wf.Definition, _ map[string]wf.StepResult) {
+func writeSteps(b *strings.Builder, steps []wf.Step) {
 	var ids []string
-	for _, st := range d.Steps {
+	for _, st := range steps {
 		if st.Source != "" {
 			// A clickable node: the step's code.
 			fmt.Fprintf(b, "  %s: %q {link: %q}\n", id(st.Name), st.Name, st.Source)

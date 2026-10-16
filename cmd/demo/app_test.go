@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	wf "git.bytestone.uk/hum3/gobank-workflow"
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
@@ -244,4 +248,39 @@ func TestDefinitionDiagramIsServedWhenShippedAndInstanceD2IsGenerated(t *testing
 	mustContain(t, d2, "tag.class: failed", "check.class: completed", "deploy_docs.class: not_run", "v0.1.3")
 	_, detail := get(t, c, srv.URL+"/workflows/instances/"+id)
 	mustContain(t, detail, `href="workflows/instances/`+id+`/diagram.d2"`, `src="workflows/definitions/release/diagram.svg"`)
+}
+
+func TestAnInstanceRendersFromTheRevisionItRan(t *testing.T) {
+	app, err := NewApp(Options{Accounts: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { app.Close() })
+	ctx := context.Background()
+	old := &wf.RunRecord{ID: "old-release", WorkflowType: wf.WorkflowRelease, BusinessDate: wf.NewBusinessDate(2025, time.December, 1), Key: "v0.0.9",
+		Revision: wf.NewRevision([]string{"check", "tag", "publish"}), Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	if err := app.store.CreateRun(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"check", "tag", "publish"} {
+		if err := app.store.RecordStep(ctx, &wf.StepResult{ID: "old-" + name, RunID: old.ID, StepName: name, Status: wf.StatusCompleted, CreatedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, ok := app.instanceHTML(ctx, old.ID)
+	if !ok {
+		t.Fatal("instance not found")
+	}
+	mustContain(t, page, "3 of 3 stages completed", "<strong>publish</strong>", old.Revision.ID, "not the current revision")
+	if strings.Contains(page, "deploy docs") {
+		t.Fatalf("a stage the run's revision did not have should not be listed:\n%s", page)
+	}
+}
+
+func TestDefinitionsShowTheirPurpose(t *testing.T) {
+	srv, c := newTestServer(t)
+	_, body := get(t, c, srv.URL+"/workflows/definitions")
+	mustContain(t, body, "end of day", "Close the bank&#39;s books", "release", "Ship a new version")
+	_, detail := get(t, c, srv.URL+"/workflows/definitions/release")
+	mustContain(t, detail, "<strong>Purpose:</strong> release")
 }

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Purpose and revision (#4). A `Purpose` (name, description) on each
+  `Definition` says what the workflow achieves; it lives in the registry
+  only, and the demo's definitions pages show it. A `Revision` is the
+  step list an attempt ran: `RunPipeline` and `RunDaily` record it on the
+  run at creation and again at each restart, so a retry under changed
+  code carries the new list. Instance pages and `diagram.Instance` render
+  from the recorded revision through `Definition.StepsFor`, and the demo
+  flags an instance whose revision is not the current one. Schema v4
+  (expand) adds `revision` and `step_names` to `workflow_runs`; runs from
+  before it render from the live definition as before.
+
+### Changed
+- `Store.RestartRun` takes the new attempt's `Revision` (breaking for
+  `Store` implementations outside this module).
+
 ## [0.4.0] - 2026-10-15
 
  - Compensation: Stage.Undo reverses a completed stage when a later one fails (#3)

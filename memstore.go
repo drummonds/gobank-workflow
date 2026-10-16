@@ -43,7 +43,9 @@ func (m *MemStore) CreateRun(ctx context.Context, run *RunRecord) error {
 	if run.CreatedAt.IsZero() {
 		run.CreatedAt = time.Now()
 	}
-	m.runs = append(m.runs, *run)
+	stored := *run
+	stored.Revision.Steps = slices.Clone(run.Revision.Steps)
+	m.runs = append(m.runs, stored)
 	return nil
 }
 
@@ -96,12 +98,13 @@ func (m *MemStore) FindRunByKey(ctx context.Context, wfType WorkflowType, key st
 	return nil, nil
 }
 
-func (m *MemStore) RestartRun(ctx context.Context, id string) error {
+func (m *MemStore) RestartRun(ctx context.Context, id string, rev Revision) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for i := range m.runs {
 		if m.runs[i].ID == id {
+			m.runs[i].Revision = Revision{ID: rev.ID, Steps: slices.Clone(rev.Steps)}
 			m.runs[i].Status = StatusRunning
 			m.runs[i].StartedAt = time.Now()
 			m.runs[i].CompletedAt = time.Time{}
