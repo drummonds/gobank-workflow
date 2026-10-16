@@ -28,19 +28,11 @@ What a workflow is and what a run records of it.
 
 - #4 Purpose and revision — two levels around the workflow, so the
   hierarchy is purpose → workflow → revision → instance → step. A
-  `Purpose` (name, description, instance key) is what is achieved;
-  its workflows are the ways of achieving it (upgrade: redeploy,
-  drill, blue-green, in-place), one purpose per workflow. The
-  instance key moves from `Definition` to `Purpose`, so "is 0.4.2
-  deployed" is answered across all its workflows, and the
-  concurrent runner guard is scoped to the purpose. A revision is
-  the step list as the code had it, a hash of the step names
-  recorded on each run, so an instance that outlives its code still
-  renders from what it recorded (the instance page reads the live
-  release stages today). No store column for purpose, one for
-  revision. Open: whether a drill is the upgrade purpose or a
-  "rehearse upgrade" purpose reusing the same workflows, decided by
-  whether its key is the target version or the drill date
+  `Purpose` (name, description) on each definition is what is
+  achieved, registry only; the instance key stays per workflow until
+  #16. A revision is the step list an attempt ran, recorded on the
+  run, so an instance that outlives its code still renders from what
+  it ran
 - #5 Attempt history (comparison, "now") — an `attempt` number on
   `workflow_steps` kept across retries, instead of deleting the failed
   steps; the instance page shows the last attempt by default
@@ -53,6 +45,10 @@ What a workflow is and what a run records of it.
   waiting or failed instance keeps the whole revision; failed is not
   resolved until retried or abandoned, and abandoning is a status
   we do not have
+- #16 Instance key per purpose (deferred from #4) — the key moves from
+  `Definition` to `Purpose`, so a key completed by any of a purpose's
+  workflows is done for all of them. Waits for a purpose with two
+  workflows; runner-enforced only, so #7's guard follows it
 
 ## Running
 
@@ -60,8 +56,9 @@ How runs are started, guarded, retried and resumed.
 
 - #7 Concurrent runner guard (comparison, "now") — `ErrAlreadyRunning`
   from `RestartRun` unless the run is stale, judged by a
-  `heartbeat_at` column, scoped to the purpose: one running instance
-  per purpose and key. Needed once several processes share a store
+  `heartbeat_at` column: one running instance per workflow and key,
+  per purpose and key once #16 lands. Needed once several processes
+  share a store
 - #8 Scheduling — a `schedules` table and a tick, next due date, skip
   while the previous run is still running; `CatchUp` is the backfill.
   The v0.1 "configurable scheduling" item, now shaped
