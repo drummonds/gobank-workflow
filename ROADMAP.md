@@ -67,6 +67,16 @@ How runs are started, guarded, retried and resumed.
   The v0.1 "configurable scheduling" item, now shaped
 - #9 Per-step retry with backoff, when a network stage hurts
 - #10 Resume mid-pass for the daily run, with gobank's stage 3d
+- #14 Abandoned status — `abandoned`, an operator's terminal decision
+  that a failed instance will not be finished, with who and why;
+  failed stays the retryable observation. The queue (#11) drops
+  abandoned runs and #6's purge can treat them as resolved. Abandon
+  does not compensate: `Undo` stays a separate action
+- #15 Panic recovery — a panicking stage or processor fails its run
+  (`panic: <value>` and the stack as the error, then compensation)
+  instead of killing the process and leaving the run `running`. No
+  `panicked` status: the cause carries it. A process that dies
+  outright is #7's heartbeat
 
 ## Pages
 
