@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-16
+
+ - Purpose and revision (#4): runs record and render the step list they ran
+
 ### Added
 - Purpose and revision (#4). A `Purpose` (name, description) on each
   `Definition` says what the workflow achieves; it lives in the registry
