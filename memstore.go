@@ -236,8 +236,14 @@ func (m *MemStore) ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, erro
 		}
 	}
 	sort.Slice(sorted, func(i, j int) bool {
+		if f.InHandFirst {
+			if ci, cj := sorted[i].Status == StatusCompleted, sorted[j].Status == StatusCompleted; ci != cj {
+				return cj
+			}
+		}
 		return sorted[i].CreatedAt.After(sorted[j].CreatedAt)
 	})
+	sorted = sorted[min(f.Offset, len(sorted)):]
 	if f.Limit > 0 && len(sorted) > f.Limit {
 		sorted = sorted[:f.Limit]
 	}

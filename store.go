@@ -68,8 +68,8 @@ type Store interface {
 	LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error)
 }
 
-// RunFilter narrows ListRuns. Each set field must match; the zero value
-// matches every run.
+// RunFilter narrows, orders and pages ListRuns. Each set matching field
+// must match; the zero value lists every run, newest first.
 type RunFilter struct {
 	Types    []WorkflowType // any of these; empty is any type
 	Statuses []RunStatus    // any of these; empty is any status
@@ -78,5 +78,9 @@ type RunFilter struct {
 	// KeyContains matches runs whose key contains it, ignoring case.
 	KeyContains string
 	Revision    string // a Revision.ID
-	Limit       int    // at most this many, the newest; 0 is no limit
+	// InHandFirst lists the runs still in hand, all but completed ones,
+	// before the completed: the work queue's order.
+	InHandFirst bool
+	Offset      int // skip this many, in list order
+	Limit       int // at most this many after the offset; 0 is no limit
 }

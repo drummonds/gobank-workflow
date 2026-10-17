@@ -187,7 +187,8 @@ func Revisions(t *testing.T, s wf.Store) {
 }
 
 // FilteredRuns checks ListRuns under a RunFilter: each field narrows the
-// runs, fields combine, the newest come first and Limit caps them. s must
+// runs, fields combine, the newest come first (in hand before completed
+// when asked), and Offset and Limit page them. s must
 // start empty.
 func FilteredRuns(t *testing.T, s wf.Store) {
 	t.Helper()
@@ -196,6 +197,7 @@ func FilteredRuns(t *testing.T, s wf.Store) {
 	revA, revB := wf.NewRevision([]string{"build"}), wf.NewRevision([]string{"build", "tag"})
 	for _, r := range []wf.RunRecord{
 		{ID: "f1", WorkflowType: "ship", Key: "v1.0.0", Revision: revA, Status: wf.StatusCompleted, CreatedAt: t0},
+		{ID: "f5", WorkflowType: "close", Status: wf.StatusCompleted, CreatedAt: t0.Add(48 * time.Hour)},
 		{ID: "f2", WorkflowType: "ship", Key: "V1.1.0", Revision: revB, Status: wf.StatusFailed, CreatedAt: t0.Add(time.Hour)},
 		{ID: "f3", WorkflowType: "close", Status: wf.StatusRunning, CreatedAt: t0.Add(2 * time.Hour)},
 		{ID: "f4", WorkflowType: "ship", Key: "v2.0.0_rc1", Revision: revB, Status: wf.StatusWaiting, CreatedAt: t0.Add(24 * time.Hour)},
@@ -211,15 +213,19 @@ func FilteredRuns(t *testing.T, s wf.Store) {
 		f    wf.RunFilter
 		want []string
 	}{
-		{"no filter is every run, newest first", wf.RunFilter{}, []string{"f4", "f3", "f2", "f1"}},
-		{"limit keeps the newest", wf.RunFilter{Limit: 2}, []string{"f4", "f3"}},
+		{"no filter is every run, newest first", wf.RunFilter{}, []string{"f5", "f4", "f3", "f2", "f1"}},
+		{"limit keeps the newest", wf.RunFilter{Limit: 2}, []string{"f5", "f4"}},
 		{"types", wf.RunFilter{Types: []wf.WorkflowType{"ship"}}, []string{"f4", "f2", "f1"}},
 		{"statuses", wf.RunFilter{Statuses: []wf.RunStatus{wf.StatusFailed, wf.StatusWaiting}}, []string{"f4", "f2"}},
-		{"since is created at or after", wf.RunFilter{Since: t0.Add(time.Hour)}, []string{"f4", "f3", "f2"}},
+		{"since is created at or after", wf.RunFilter{Since: t0.Add(time.Hour)}, []string{"f5", "f4", "f3", "f2"}},
 		{"key contains, ignoring case", wf.RunFilter{KeyContains: "v1."}, []string{"f2", "f1"}},
 		{"key contains takes _ literally", wf.RunFilter{KeyContains: "0_r"}, []string{"f4"}},
 		{"key contains takes % literally", wf.RunFilter{KeyContains: "%"}, nil},
 		{"revision", wf.RunFilter{Revision: revB.ID}, []string{"f4", "f2"}},
+		{"offset skips the newest", wf.RunFilter{Offset: 1, Limit: 2}, []string{"f4", "f3"}},
+		{"offset without limit", wf.RunFilter{Offset: 3}, []string{"f2", "f1"}},
+		{"in hand first, then completed, each newest first", wf.RunFilter{InHandFirst: true}, []string{"f4", "f3", "f2", "f5", "f1"}},
+		{"in hand first pages across the completed", wf.RunFilter{InHandFirst: true, Types: []wf.WorkflowType{"ship"}, Offset: 1, Limit: 2}, []string{"f2", "f1"}},
 		{"fields combine", wf.RunFilter{Types: []wf.WorkflowType{"ship"}, Statuses: []wf.RunStatus{wf.StatusCompleted, wf.StatusWaiting}, Limit: 1}, []string{"f4"}},
 	} {
 		runs, err := s.ListRuns(ctx, c.f)

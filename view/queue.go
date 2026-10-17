@@ -19,15 +19,11 @@ const (
 	queueMax     = 500 // the most n may ask for
 )
 
-// current are the statuses of instances still in hand, which the queue
-// lists before the completed ones.
-var current = []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusFailed}
-
 // queueFilter is the instances page's GET form: what the operator asked
 // to see, as written in the query string.
 type queueFilter struct {
 	Purpose, Workflow, Status, Since, Key, Revision string
-	N                                               int
+	N, Page                                         int
 }
 
 func parseQueueFilter(r *http.Request) queueFilter {
@@ -36,6 +32,8 @@ func parseQueueFilter(r *http.Request) queueFilter {
 		Since: r.FormValue("since"), Key: r.FormValue("key"), Revision: r.FormValue("revision"),
 	}
 	q.N, _ = strconv.Atoi(r.FormValue("n"))
+	q.Page, _ = strconv.Atoi(r.FormValue("page"))
+	q.Page = max(q.Page, 1)
 	return q
 }
 
@@ -60,6 +58,9 @@ func (v *Views) queueHref(q queueFilter) string {
 	}
 	if q.N > 0 {
 		vals.Set("n", strconv.Itoa(q.N))
+	}
+	if q.Page > 0 {
+		vals.Set("page", strconv.Itoa(q.Page))
 	}
 	if len(vals) == 0 {
 		return v.Base + "instances"
@@ -96,26 +97,45 @@ func (v *Views) storeFilter(q queueFilter) (wf.RunFilter, bool) {
 	return f, f.Types == nil || len(f.Types) > 0
 }
 
-// queueRuns is the queue: the current instances, then the newest
-// completed, n in all; or, when a status is asked for, the newest n in it.
-func (v *Views) queueRuns(ctx context.Context, q queueFilter) ([]wf.RunRecord, error) {
+// queueRuns is one page of the queue: the instances in hand, then the
+// completed, newest first in each; or, when a status is asked for, the
+// newest in it. more says a later page has instances.
+func (v *Views) queueRuns(ctx context.Context, q queueFilter) (runs []wf.RunRecord, more bool, err error) {
 	f, ok := v.storeFilter(q)
 	if !ok {
-		return nil, nil
+		return nil, false, nil
 	}
-	f.Limit = q.n()
 	if q.Status != "" {
 		f.Statuses = []wf.RunStatus{wf.RunStatus(q.Status)}
-		return v.Store.ListRuns(ctx, f)
 	}
-	f.Statuses = current
-	runs, err := v.Store.ListRuns(ctx, f)
-	if err != nil || len(runs) == f.Limit {
-		return runs, err
+	f.InHandFirst = q.Status == ""
+	f.Offset, f.Limit = (max(q.Page, 1)-1)*q.n(), q.n()+1
+	runs, err = v.Store.ListRuns(ctx, f)
+	if len(runs) > q.n() {
+		return runs[:q.n()], true, err
 	}
-	f.Statuses, f.Limit = []wf.RunStatus{wf.StatusCompleted}, f.Limit-len(runs)
-	done, err := v.Store.ListRuns(ctx, f)
-	return append(runs, done...), err
+	return runs, false, err
+}
+
+// headline is a group's newest instance under the filter, on whatever page.
+func (v *Views) headline(ctx context.Context, q queueFilter, group queueFilter, fallback wf.RunRecord) wf.RunRecord {
+	if group.Purpose != "" {
+		q.Purpose = group.Purpose
+	} else {
+		q.Workflow = group.Workflow
+	}
+	f, ok := v.storeFilter(q)
+	if !ok {
+		return fallback
+	}
+	if q.Status != "" {
+		f.Statuses = []wf.RunStatus{wf.RunStatus(q.Status)}
+	}
+	f.Limit = 1
+	if runs, err := v.Store.ListRuns(ctx, f); err == nil && len(runs) == 1 {
+		return runs[0]
+	}
+	return fallback
 }
 
 // purposeOf is the group a run is queued under: its definition's purpose,
@@ -206,13 +226,18 @@ func (v *Views) filterForm(b *strings.Builder, q queueFilter) {
 // queueHTML writes the queue under q, one table per purpose, each headed by
 // the purpose's newest instance.
 func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter) {
-	runs, err := v.queueRuns(ctx, q)
+	q.Page = max(q.Page, 1)
+	runs, more, err := v.queueRuns(ctx, q)
 	if err != nil {
 		errorNote(b, err)
 		return
 	}
 	if len(runs) == 0 {
-		if q.narrowed() {
+		if q.Page > 1 {
+			first := q
+			first.Page = 0
+			fmt.Fprintf(b, `<div class="notification">No instances on page %d. <a href="%s">First page</a></div>`, q.Page, html.EscapeString(v.queueHref(first)))
+		} else if q.narrowed() {
 			b.WriteString(`<div class="notification">No instances match this filter.</div>`)
 		} else {
 			b.WriteString(`<div class="notification">No instances yet.</div>`)
@@ -230,13 +255,8 @@ func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter
 	}
 	for _, name := range order {
 		rs := groups[name]
-		newest := rs[0]
-		for _, r := range rs {
-			if r.CreatedAt.After(newest.CreatedAt) {
-				newest = r
-			}
-		}
-		_, filter := v.purposeOf(newest)
+		_, filter := v.purposeOf(rs[0])
+		newest := v.headline(ctx, q, filter, rs[0])
 		fmt.Fprintf(b, `<h2 class="subtitle mt-5 mb-2"><a href="%s"><strong>%s</strong></a>: <a href="%s">%s</a> %s via <code>%s</code></h2>`,
 			html.EscapeString(v.queueHref(filter)), html.EscapeString(name), v.InstanceHref(newest.ID), html.EscapeString(instanceName(newest)), statusTag(newest.Status), newest.WorkflowType)
 		b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth is-narrow">`)
@@ -252,7 +272,19 @@ func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter
 		}
 		b.WriteString(`</tbody></table></div>`)
 	}
-	if len(runs) == q.n() {
-		fmt.Fprintf(b, `<p class="has-text-grey">Showing the first %d; raise n to see more.</p>`, q.n())
+	if q.Page > 1 || more {
+		at := func(page int) string {
+			p := q
+			p.Page = page
+			return html.EscapeString(v.queueHref(p))
+		}
+		b.WriteString(`<nav class="pagination is-small mt-4" role="navigation" aria-label="queue pages">`)
+		if q.Page > 1 {
+			fmt.Fprintf(b, `<a class="pagination-previous" href="%s">Previous</a>`, at(q.Page-1))
+		}
+		if more {
+			fmt.Fprintf(b, `<a class="pagination-next" href="%s">Next</a>`, at(q.Page+1))
+		}
+		fmt.Fprintf(b, `<ul class="pagination-list"><li><a class="pagination-link is-current" aria-current="page">%d</a></li></ul></nav>`, q.Page)
 	}
 }

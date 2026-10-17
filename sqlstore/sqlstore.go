@@ -237,10 +237,16 @@ func (s *Store) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, e
 func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error) {
 	where, args := runFilterSQL(f)
 	query := `SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
-		 FROM workflow_runs` + where + ` ORDER BY created_at DESC`
+		 FROM workflow_runs` + where + ` ORDER BY `
+	if f.InHandFirst {
+		query += `CASE WHEN status = 'completed' THEN 1 ELSE 0 END, `
+	}
+	query += `created_at DESC`
+	skip := f.Offset
 	if f.Limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, f.Limit)
+		query += ` LIMIT ? OFFSET ?`
+		args = append(args, f.Limit, f.Offset)
+		skip = 0
 	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -253,6 +259,12 @@ func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, e
 		r, err := scanRunRow(rows)
 		if err != nil {
 			return nil, err
+		}
+		// SQLite has no OFFSET without LIMIT, nor Postgres LIMIT -1: an
+		// offset alone is skipped here.
+		if skip > 0 {
+			skip--
+			continue
 		}
 		results = append(results, *r)
 	}

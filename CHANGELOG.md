@@ -9,17 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - `RunFilter` (#11): `Store.ListRuns` takes a filter — workflow types,
   statuses, created since (to the second), key contains (ignoring case,
-  `%` and `_` literal), revision, limit — and the SQL store filters in
-  the query. `storetest.FilteredRuns` is the contract.
+  `%` and `_` literal), revision — orders (`InHandFirst`: the queue's order) and pages
+  (`Offset`, `Limit`), all in the one SQL query. `storetest.FilteredRuns` is the contract.
 
 ### Changed
 - `Store.ListRuns(ctx, limit)` is now `ListRuns(ctx, RunFilter)`
   (breaking; `RunFilter{Limit: n}` is the old call), and so is
   `view.Reader`'s.
 - Instances page is a work queue (#11): the instances in hand (pending,
-  running, waiting, failed) first, then the newest completed, n in all
-  (default 50, at most 500), grouped by purpose with the purpose's
-  newest instance as its headline. A GET form filters by purpose,
+  running, waiting, failed) first, then the completed, newest first in
+  each, n to a page (default 50, at most 500) with Previous/Next
+  (`?page=N`), grouped by purpose with the purpose's newest instance as
+  its headline. A GET form filters by purpose,
   workflow, status, since, key contains and n, on the server and in
   the WASM build alike. Drill-down is by link: purpose → workflow →
   revision → instance. A definition's page shows the same queue for

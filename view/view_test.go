@@ -154,12 +154,38 @@ func TestTheQueueListsCurrentInstancesBeforeTheNewestCompletedGroupedByPurpose(t
 	mustContain(t, serve(t, views(&store{}), "/workflows/instances").body, "No instances yet")
 }
 
-func TestTheQueueIsCappedAtN(t *testing.T) {
-	body := serve(t, views(queue()), "/workflows/instances?n=2").body
-	mustContain(t, body, `href="/workflows/instances/eod"`, `href="/workflows/instances/w"`, "first 2")
-	if strings.Contains(body, `href="/workflows/instances/f"`) {
-		t.Fatalf("n=2 should show only the two newest current instances:\n%s", body)
+func TestTheQueuePagesNAtATime(t *testing.T) {
+	for _, c := range []struct {
+		query      string
+		shown      []string // instance rows, in order
+		prev, next string   // pager links; "" when there is none
+	}{
+		{"n=2", []string{"eod", "w"}, "", "n=2&amp;page=2"},
+		{"n=2&page=2", []string{"f", "c-new"}, "n=2&amp;page=1", "n=2&amp;page=3"},
+		{"n=2&page=3", []string{"c-old"}, "n=2&amp;page=2", ""},
+	} {
+		body := serve(t, views(queue()), "/workflows/instances?"+c.query).body
+		var rows []string
+		for _, id := range c.shown {
+			rows = append(rows, `href="/workflows/instances/`+id+`">View`)
+		}
+		inOrder(t, body, rows...)
+		if n := strings.Count(body, `">View</a>`); n != len(c.shown) {
+			t.Errorf("%s: %d rows, want %d", c.query, n, len(c.shown))
+		}
+		for label, link := range map[string]string{"Previous": c.prev, "Next": c.next} {
+			pager := `href="/workflows/instances?` + link + `">` + label
+			if got := strings.Contains(body, ">"+label+"</a>"); got != (link != "") {
+				t.Errorf("%s: %s shown %v", c.query, label, got)
+			} else if link != "" {
+				mustContain(t, body, pager)
+			}
+		}
 	}
+	// The headline is the purpose's newest instance, not the page's.
+	page3 := serve(t, views(queue()), "/workflows/instances?n=2&page=3").body
+	inOrder(t, page3[strings.Index(page3, "</form>"):], "release", `href="/workflows/instances/c-new"`, `href="/workflows/instances/c-old">View`)
+	mustContain(t, serve(t, views(queue()), "/workflows/instances?n=2&page=9").body, "No instances on page 9")
 }
 
 func TestTheFilterNarrowsTheQueue(t *testing.T) {
@@ -336,3 +362,15 @@ func TestADefinitionWithoutAPurposeStillLists(t *testing.T) {
 		t.Fatalf("an empty purpose should not leave an empty heading:\n%s", body)
 	}
 }
+
+func TestADefinitionsQueuePagesOnToTheInstancesPage(t *testing.T) {
+	s := &store{}
+	for i := range queueDefault + 1 {
+		s.runs = append(s.runs, run(fmt.Sprintf("r%02d", i), shipping, fmt.Sprintf("v0.%d.0", i), wf.StatusCompleted, t0.Add(time.Duration(i)*time.Minute)))
+	}
+	body := serve(t, views(s), "/workflows/definitions/ship").body
+	mustContain(t, body, `href="/workflows/instances?page=2&amp;workflow=ship">Next`)
+}
+
+// queueDefault is the view's default n.
+const queueDefault = 50
