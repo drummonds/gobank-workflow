@@ -79,16 +79,6 @@ How runs are started, guarded, retried and resumed.
 
 What the host shows of the engine and what an operator does through it.
 
-- #11 Workflows page as a work queue — the default view is the current
-  instances, running, waiting and failed first, then the newest
-  completed, capped at n and grouped by purpose with each purpose's
-  newest instance as its headline ("upgrade: 0.4.2 running via
-  blue-green"). Filter is a GET form (purpose, workflow, status,
-  since, key contains, n), served and in WASM alike, backed by a
-  `RunFilter` on `Store.ListRuns` in place of the bare limit so the
-  filtering is SQL. Drill-down is purpose → workflow (revisions as a
-  filter) → instance → steps. Replaces the flat 500-row Instances
-  page and the per-type list repeated on Definitions
 - #12 Panels from native code — `Definition.Status(run, steps) string`
   returns HTML for the instance page through `lofigui.HTML`,
   freeform because its content is domain figures; the engine stays

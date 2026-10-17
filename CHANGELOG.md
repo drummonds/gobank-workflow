@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-17
+
+ - sqlstore writes stamps fixed-width, so runs and steps list in time order within a second; schema v5 pads the stamps already written; Docs: a database schema page, a d2 diagram of the tables and their keys and a table of every column, held to the live schema by a test
+
+### Added
+
+- Docs: a database schema page, a d2 diagram of the tables and their keys and a table of every column, held to the live schema by a test (#22)
+
+### Fixed
+
+- sqlstore writes stamps fixed-width, so runs and steps list in time order within a second; schema v5 pads the stamps already written (#20)
+
+### Roadmap
+- #11 Workflows page as a work queue — the default view is the current
+  instances, running, waiting and failed first, then the newest
+  completed, capped at n and grouped by purpose with each purpose's
+  newest instance as its headline ("upgrade: 0.4.2 running via
+  blue-green"). Filter is a GET form (purpose, workflow, status,
+  since, key contains, n), served and in WASM alike, backed by a
+  `RunFilter` on `Store.ListRuns` in place of the bare limit so the
+  filtering is SQL. Drill-down is purpose → workflow (revisions as a
+  filter) → instance → steps. Replaces the flat 500-row Instances
+  page and the per-type list repeated on Definitions
+
 ## [0.7.0] - 2026-10-17
 
  - Instances page as a filterable work queue; Store.ListRuns takes a RunFilter (#11)
