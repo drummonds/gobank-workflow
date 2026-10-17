@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- Demo app: an instance's account steps are paged, 50 per page with
+  Previous/Next and page links (`?page=N`, clamped), in account order (#18).
+  Previously only the first 50 were shown, in record order.
+
 ## [0.5.0] - 2026-10-16
 
  - Purpose and revision (#4): runs record and render the step list they ran

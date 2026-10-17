@@ -6,6 +6,7 @@ import (
 	"html"
 	"io/fs"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -102,7 +103,8 @@ func (a *App) instancesHTML(ctx context.Context) string {
 	return b.String()
 }
 
-const stepsShown = 50
+// stepsPerPage is how many account steps one page of an instance shows.
+const stepsPerPage = 50
 
 // instanceName is what identifies an instance to a reader: its key when
 // the definition has one, otherwise its business date.
@@ -122,7 +124,9 @@ func definitionOf(t wf.WorkflowType) *wf.Definition {
 	return nil
 }
 
-func (a *App) instanceHTML(ctx context.Context, id string) (string, bool) {
+// instanceHTML renders one instance; page (1-based, clamped) selects which
+// stepsPerPage account steps are listed.
+func (a *App) instanceHTML(ctx context.Context, id string, page int) (string, bool) {
 	a.mu.Lock()
 	run, err := a.store.GetRun(ctx, id)
 	var steps []wf.StepResult
@@ -200,14 +204,38 @@ func (a *App) instanceHTML(ctx context.Context, id string) (string, bool) {
 		}
 		b.WriteString(`</tbody></table>`)
 	} else if len(steps) > 0 {
-		fmt.Fprintf(&b, `<h2 class="subtitle">Steps <span class="has-text-grey">(first %d of %d)</span></h2>`, min(stepsShown, len(steps)), len(steps))
+		// Account order, not record order: it is what a reader scans by,
+		// and it does not depend on the clock's resolution.
+		slices.SortFunc(steps, func(x, y wf.StepResult) int { return strings.Compare(x.AccountID, y.AccountID) })
+		pages := (len(steps) + stepsPerPage - 1) / stepsPerPage
+		page = min(max(page, 1), pages)
+		lo, hi := (page-1)*stepsPerPage, min(page*stepsPerPage, len(steps))
+		fmt.Fprintf(&b, `<h2 class="subtitle">Steps <span class="has-text-grey">(steps %d–%d of %d)</span></h2>`, lo+1, hi, len(steps))
 		b.WriteString(`<div class="table-container"><table class="table is-striped is-fullwidth is-narrow">`)
 		b.WriteString(`<thead><tr><th>Account</th><th>Step</th><th class="has-text-right">Opening</th><th class="has-text-right">Interest</th><th class="has-text-right">Closing</th></tr></thead><tbody>`)
-		for _, s := range steps[:min(stepsShown, len(steps))] {
+		for _, s := range steps[lo:hi] {
 			fmt.Fprintf(&b, `<tr><td><code>%s</code></td><td>%s</td><td class="has-text-right">%s</td><td class="has-text-right">%s</td><td class="has-text-right">%s</td></tr>`,
 				s.AccountID, s.StepName, money(s.OpeningBalance, s.Exponent), money(s.InterestAmount, s.Exponent), money(s.ClosingBalance, s.Exponent))
 		}
 		b.WriteString(`</tbody></table></div>`)
+		if pages > 1 {
+			b.WriteString(`<nav class="pagination is-small" role="navigation" aria-label="steps pages">`)
+			if page > 1 {
+				fmt.Fprintf(&b, `<a class="pagination-previous" href="workflows/instances/%s?page=%d">Previous</a>`, run.ID, page-1)
+			}
+			if page < pages {
+				fmt.Fprintf(&b, `<a class="pagination-next" href="workflows/instances/%s?page=%d">Next</a>`, run.ID, page+1)
+			}
+			b.WriteString(`<ul class="pagination-list">`)
+			for p := 1; p <= pages; p++ {
+				if p == page {
+					fmt.Fprintf(&b, `<li><a class="pagination-link is-current" aria-current="page">%d</a></li>`, p)
+				} else {
+					fmt.Fprintf(&b, `<li><a class="pagination-link" href="workflows/instances/%s?page=%d">%d</a></li>`, run.ID, p, p)
+				}
+			}
+			b.WriteString(`</ul></nav>`)
+		}
 	}
 	if current {
 		// The pre-rendered picture is of the current code.

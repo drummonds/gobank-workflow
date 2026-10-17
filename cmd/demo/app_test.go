@@ -267,7 +267,7 @@ func TestAnInstanceRendersFromTheRevisionItRan(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	page, ok := app.instanceHTML(ctx, old.ID)
+	page, ok := app.instanceHTML(ctx, old.ID, 1)
 	if !ok {
 		t.Fatal("instance not found")
 	}
@@ -283,4 +283,34 @@ func TestDefinitionsShowTheirPurpose(t *testing.T) {
 	mustContain(t, body, "end of day", "Close the bank&#39;s books", "release", "Ship a new version")
 	_, detail := get(t, c, srv.URL+"/workflows/definitions/release")
 	mustContain(t, detail, "<strong>Purpose:</strong> release")
+}
+
+func TestInstanceStepsArePagedInAccountOrder(t *testing.T) {
+	app, err := NewApp(Options{Accounts: 120})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { app.Close() })
+	srv := httptest.NewServer(app.Handler("/"))
+	t.Cleanup(srv.Close)
+	c := srv.Client()
+	post(t, c, srv.URL+"/simulation/advance", url.Values{"days": {"1"}})
+	_, list := get(t, c, srv.URL+"/workflows/instances")
+	path := regexp.MustCompile(`href="(workflows/instances/[^"]+)"`).FindStringSubmatch(list)[1]
+
+	_, first := get(t, c, srv.URL+"/"+path)
+	mustContain(t, first, "acct-0000", "acct-0049", "steps 1–50 of 120", `href="`+path+`?page=2"`)
+	if strings.Contains(first, "acct-0050") {
+		t.Fatal("page 1 shows a page-2 step")
+	}
+
+	_, last := get(t, c, srv.URL+"/"+path+"?page=3")
+	mustContain(t, last, "acct-0100", "acct-0119", "steps 101–120 of 120", `href="`+path+`?page=2"`)
+	if strings.Contains(last, "acct-0099") || strings.Contains(last, "?page=4") {
+		t.Fatal("page 3 shows a page-2 step or a next link")
+	}
+
+	// Out of range clamps to the last page rather than showing nothing.
+	_, beyond := get(t, c, srv.URL+"/"+path+"?page=9")
+	mustContain(t, beyond, "steps 101–120 of 120")
 }

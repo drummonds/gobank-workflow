@@ -236,7 +236,8 @@ func (a *App) Handler(base string) http.Handler {
 		a.render(w, base, "instances", a.instancesHTML(r.Context()))
 	})
 	mux.HandleFunc("GET /workflows/instances/{id}", func(w http.ResponseWriter, r *http.Request) {
-		html, ok := a.instanceHTML(r.Context(), r.PathValue("id"))
+		page, _ := strconv.Atoi(r.FormValue("page"))
+		html, ok := a.instanceHTML(r.Context(), r.PathValue("id"), page)
 		if !ok {
 			http.NotFound(w, r)
 			return
