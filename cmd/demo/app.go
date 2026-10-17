@@ -20,9 +20,9 @@ import (
 	dbexplorer "git.bytestone.uk/hum3/go-dbexplorer"
 	_ "git.bytestone.uk/hum3/go-postgres"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
-	"git.bytestone.uk/hum3/gobank-workflow/diagram"
 	"git.bytestone.uk/hum3/gobank-workflow/internal/demoaccounts"
 	"git.bytestone.uk/hum3/gobank-workflow/sqlstore"
+	"git.bytestone.uk/hum3/gobank-workflow/view"
 	"git.bytestone.uk/hum3/lofigui"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
@@ -31,7 +31,8 @@ import (
 var version = "dev"
 
 // assetFS holds the definition diagrams the docs build renders with d2
-// (task docs:d2); the app serves them as workflows/definitions/<type>.svg.
+// (task docs:d2); the workflow views serve them as
+// workflows/definitions/<type>/diagram.svg.
 //
 //go:embed assets
 var assetFS embed.FS
@@ -232,54 +233,17 @@ func (a *App) Handler(base string) http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { a.render(w, base, "about", a.aboutHTML()) })
 	mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { a.render(w, base, "about", a.aboutHTML()) })
 
-	mux.HandleFunc("GET /workflows/instances", func(w http.ResponseWriter, r *http.Request) {
-		a.render(w, base, "instances", a.instancesHTML(r.Context()))
-	})
-	mux.HandleFunc("GET /workflows/instances/{id}", func(w http.ResponseWriter, r *http.Request) {
-		page, _ := strconv.Atoi(r.FormValue("page"))
-		html, ok := a.instanceHTML(r.Context(), r.PathValue("id"), page)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		a.render(w, base, "instances", html)
-	})
-	mux.HandleFunc("GET /workflows/definitions", func(w http.ResponseWriter, r *http.Request) {
-		a.render(w, base, "definitions", a.definitionsHTML(r.Context()))
-	})
-	mux.HandleFunc("GET /workflows/definitions/{type}/diagram.svg", func(w http.ResponseWriter, r *http.Request) {
-		svg, err := fs.ReadFile(a.diagrams, r.PathValue("type")+".svg")
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "image/svg+xml")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(svg)
-	})
-	mux.HandleFunc("GET /workflows/instances/{id}/diagram.d2", func(w http.ResponseWriter, r *http.Request) {
-		a.mu.Lock()
-		run, err := a.store.GetRun(r.Context(), r.PathValue("id"))
-		var steps []wf.StepResult
-		if err == nil && run != nil {
-			steps, _ = a.store.ListSteps(r.Context(), run.ID)
-		}
-		a.mu.Unlock()
-		if err != nil || run == nil || definitionOf(run.WorkflowType) == nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprint(w, diagram.Instance(*definitionOf(run.WorkflowType), *run, steps))
-	})
-	mux.HandleFunc("GET /workflows/definitions/{type}", func(w http.ResponseWriter, r *http.Request) {
-		html, ok := a.definitionHTML(r.Context(), wf.WorkflowType(r.PathValue("type")))
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		a.render(w, base, "definitions", html)
-	})
+	views := &view.Views{
+		Store:       lockedStore{a},
+		Definitions: wf.Definitions,
+		Base:        "workflows/", // relative to <base href>, like every in-app link
+		Diagrams:    a.diagrams,
+		Detail:      a.detail,
+		Frame: func(w http.ResponseWriter, r *http.Request, p view.Page) {
+			a.render(w, base, p.Active, string(p.HTML))
+		},
+	}
+	mux.Handle("/workflows/", http.StripPrefix("/workflows", views.Handler()))
 
 	mux.HandleFunc("GET /simulation", func(w http.ResponseWriter, r *http.Request) {
 		a.render(w, base, "simulation", a.simulationHTML(r.Context()))

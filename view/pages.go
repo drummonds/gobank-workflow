@@ -1,0 +1,285 @@
+package view
+
+import (
+	"context"
+	"fmt"
+	"html"
+	"html/template"
+	"net/http"
+	"strings"
+	"time"
+
+	wf "git.bytestone.uk/hum3/gobank-workflow"
+)
+
+func statusTag(s wf.RunStatus) string {
+	class := "is-light"
+	switch s {
+	case wf.StatusRunning:
+		class = "is-info"
+	case wf.StatusWaiting:
+		class = "is-warning"
+	case wf.StatusCompleted:
+		class = "is-success"
+	case wf.StatusFailed:
+		class = "is-danger"
+	}
+	return fmt.Sprintf(`<span class="tag %s">%s</span>`, class, s)
+}
+
+// stamp is a moment with its date: runs can span days.
+func stamp(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.Local().Format("2006-01-02 15:04:05")
+}
+
+// took is a duration rounded to its scale: seconds for minutes and more,
+// milliseconds for seconds, microseconds below that.
+func took(d time.Duration) string {
+	switch {
+	case d >= time.Minute:
+		d = d.Round(time.Second)
+	case d >= time.Second:
+		d = d.Round(time.Millisecond)
+	case d >= time.Millisecond:
+		d = d.Round(time.Microsecond)
+	}
+	return d.String()
+}
+
+func runTook(r wf.RunRecord) string {
+	if r.CompletedAt.IsZero() {
+		return "—"
+	}
+	return took(r.CompletedAt.Sub(r.StartedAt))
+}
+
+// instanceName is what identifies an instance to a reader: its key when
+// the definition has one, otherwise its business date.
+func instanceName(r wf.RunRecord) string {
+	if r.Key != "" {
+		return r.Key
+	}
+	return r.BusinessDate.String()
+}
+
+func sourceLink(st wf.Step) string {
+	if st.Source == "" {
+		return ""
+	}
+	return fmt.Sprintf(`<a href="%s" title="%s">code</a>`, html.EscapeString(st.Source), html.EscapeString(st.Source))
+}
+
+func (v *Views) diagramHTML(b *strings.Builder, t wf.WorkflowType) {
+	if _, ok := v.diagram(t); !ok {
+		return
+	}
+	fmt.Fprintf(b, `<figure class="image my-4"><img src="%s/diagram.svg" alt="%s steps" style="max-width:100%%"></figure>`, v.DefinitionHref(t), t)
+}
+
+func errorNote(b *strings.Builder, err error) {
+	fmt.Fprintf(b, `<div class="notification is-danger">%s</div>`, html.EscapeString(err.Error()))
+}
+
+func (v *Views) instancesHTML(ctx context.Context) template.HTML {
+	runs, err := v.Store.ListRuns(ctx, runsListed)
+	var b strings.Builder
+	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">Most recent first</p>`)
+	if err != nil {
+		errorNote(&b, err)
+		return template.HTML(b.String())
+	}
+	if len(runs) == 0 {
+		b.WriteString(`<div class="notification">No instances yet.</div>`)
+		return template.HTML(b.String())
+	}
+	b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth is-narrow">`)
+	b.WriteString(`<thead><tr><th>Instance</th><th>Definition</th><th>Business date</th><th>Status</th><th>Started</th><th>Completed</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
+	for _, r := range runs {
+		fmt.Fprintf(&b, `<tr><td><strong>%s</strong></td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><a class="button is-small is-link is-light" href="%s">View</a></td></tr>`,
+			html.EscapeString(instanceName(r)), v.DefinitionHref(r.WorkflowType), r.WorkflowType, r.BusinessDate, statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID))
+	}
+	b.WriteString(`</tbody></table></div>`)
+	return template.HTML(b.String())
+}
+
+// instanceHTML is one instance: what it is, its steps laid over the
+// revision it ran when they are stages, then the host's Detail.
+func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
+	run, steps, ok := v.instance(r.Context(), id)
+	if !ok {
+		return "", false
+	}
+	def := v.definition(run.WorkflowType)
+	// Stage records name a step of the definition and nothing else; records
+	// with an account are the host's to show.
+	staged := def != nil
+	for _, s := range steps {
+		if s.AccountID != "" {
+			staged = false
+		}
+	}
+	var b strings.Builder
+	name := html.EscapeString(instanceName(run))
+	fmt.Fprintf(&b, `<nav class="breadcrumb"><ul><li><a href="%sinstances">Instances</a></li><li class="is-active"><a>%s %s</a></li></ul></nav>`, v.Base, run.WorkflowType, name)
+	fmt.Fprintf(&b, `<h1 class="title">%s %s %s</h1>`, run.WorkflowType, name, statusTag(run.Status))
+	b.WriteString(`<table class="table is-narrow"><tbody>`)
+	fmt.Fprintf(&b, `<tr><th>Instance id</th><td><code>%s</code></td></tr>`, html.EscapeString(run.ID))
+	if def != nil {
+		fmt.Fprintf(&b, `<tr><th>Definition</th><td><a href="%s"><code>%s</code></a></td></tr>`, v.DefinitionHref(run.WorkflowType), run.WorkflowType)
+	} else {
+		fmt.Fprintf(&b, `<tr><th>Definition</th><td><code>%s</code> <span class="has-text-grey">(not defined in this build)</span></td></tr>`, run.WorkflowType)
+	}
+	if run.Key != "" {
+		fmt.Fprintf(&b, `<tr><th>Key</th><td>%s</td></tr>`, name)
+	}
+	fmt.Fprintf(&b, `<tr><th>Business date</th><td>%s</td></tr>`, run.BusinessDate)
+	fmt.Fprintf(&b, `<tr><th>Status</th><td>%s</td></tr>`, statusTag(run.Status))
+	fmt.Fprintf(&b, `<tr><th>Started</th><td>%s</td></tr>`, stamp(run.StartedAt))
+	fmt.Fprintf(&b, `<tr><th>Completed</th><td>%s</td></tr>`, stamp(run.CompletedAt))
+	fmt.Fprintf(&b, `<tr><th>Took</th><td>%s</td></tr>`, runTook(run))
+	if run.Error != "" {
+		fmt.Fprintf(&b, `<tr><th>Error</th><td class="has-text-danger">%s</td></tr>`, html.EscapeString(run.Error))
+	}
+	current := def == nil || run.Revision.ID == "" || run.Revision.ID == def.Revision().ID
+	switch {
+	case run.Revision.ID == "":
+		b.WriteString(`<tr><th>Revision</th><td>— <span class="has-text-grey">(recorded before revisions)</span></td></tr>`)
+	case current:
+		fmt.Fprintf(&b, `<tr><th>Revision</th><td><code>%s</code> <span class="has-text-grey">(the current revision)</span></td></tr>`, run.Revision.ID)
+	default:
+		fmt.Fprintf(&b, `<tr><th>Revision</th><td><code>%s</code> <span class="tag is-warning is-light">not the current revision</span> <span class="has-text-grey">the code now runs a different step list</span></td></tr>`, run.Revision.ID)
+	}
+	var ran []wf.Step
+	if def != nil {
+		ran = def.StepsFor(run.Revision)
+	}
+	stages := latest(steps)
+	if staged {
+		completed := 0
+		for _, s := range stages {
+			if s.Status == wf.StatusCompleted {
+				completed++
+			}
+		}
+		fmt.Fprintf(&b, `<tr><th>Steps</th><td>%d of %d stages completed</td></tr>`, completed, len(ran))
+	} else {
+		fmt.Fprintf(&b, `<tr><th>Steps</th><td>%d recorded</td></tr>`, len(steps))
+	}
+	b.WriteString(`</tbody></table>`)
+
+	switch {
+	case staged:
+		byName := map[string]wf.StepResult{}
+		for _, s := range stages {
+			byName[s.StepName] = s
+		}
+		b.WriteString(`<h2 class="subtitle">Stages</h2>`)
+		b.WriteString(`<table class="table is-striped is-fullwidth is-narrow"><thead><tr><th>#</th><th>Stage</th><th>Status</th><th>Took</th><th>Error</th></tr></thead><tbody>`)
+		for i, stage := range ran {
+			st, recorded := byName[stage.Name]
+			status, dur, errMsg := `<span class="tag is-light">not run</span>`, "—", ""
+			if recorded {
+				status, dur, errMsg = statusTag(st.Status), took(time.Duration(st.DurationNs)), st.Error
+			}
+			fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong> <span class="has-text-grey">%s</span> %s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td></tr>`,
+				i+1, html.EscapeString(stage.Name), html.EscapeString(stage.Description), sourceLink(stage), status, dur, html.EscapeString(errMsg))
+		}
+		b.WriteString(`</tbody></table>`)
+	case def == nil && len(steps) > 0:
+		b.WriteString(`<h2 class="subtitle">Steps</h2>`)
+		b.WriteString(`<table class="table is-striped is-fullwidth is-narrow"><thead><tr><th>Step</th><th>Status</th><th>Took</th><th>Error</th></tr></thead><tbody>`)
+		for _, s := range stages {
+			fmt.Fprintf(&b, `<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td></tr>`,
+				html.EscapeString(s.StepName), statusTag(s.Status), took(time.Duration(s.DurationNs)), html.EscapeString(s.Error))
+		}
+		b.WriteString(`</tbody></table>`)
+	}
+	if v.Detail != nil {
+		b.WriteString(string(v.Detail(r, run, steps, v.InstanceHref(run.ID))))
+	}
+	if def != nil && current {
+		// The shipped picture is of the current code.
+		v.diagramHTML(&b, run.WorkflowType)
+	}
+	if def != nil {
+		fmt.Fprintf(&b, `<p><a href="%s/diagram.d2">This instance as d2</a> — steps coloured by state; render with <code>d2 diagram.d2 out.svg</code>.</p>`, v.InstanceHref(run.ID))
+	}
+	return template.HTML(b.String()), true
+}
+
+func (v *Views) definitionsHTML(ctx context.Context) template.HTML {
+	counts, err := v.Store.CountRuns(ctx)
+	var b strings.Builder
+	b.WriteString(`<h1 class="title">Workflow definitions</h1><p class="subtitle">What the engine can run: each definition is a sequence of steps, and each instance is one run of it</p>`)
+	if err != nil {
+		errorNote(&b, err)
+	}
+	b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth">`)
+	b.WriteString(`<thead><tr><th>Purpose</th><th>Type</th><th>Description</th><th>Instance key</th><th>Steps</th><th>Instances</th></tr></thead><tbody>`)
+	for _, d := range v.Definitions {
+		c := counts[d.Type]
+		var names []string
+		for _, st := range d.Steps {
+			names = append(names, st.Name)
+		}
+		purpose := "—"
+		if d.Purpose.Name != "" {
+			purpose = fmt.Sprintf(`<strong>%s</strong><br><span class="has-text-grey">%s</span>`, html.EscapeString(d.Purpose.Name), html.EscapeString(d.Purpose.Description))
+		}
+		fmt.Fprintf(&b, `<tr><td>%s</td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%d <span class="has-text-grey">(%d completed, %d failed)</span></td></tr>`,
+			purpose, v.DefinitionHref(d.Type), d.Type, html.EscapeString(d.Description), html.EscapeString(d.InstanceKey), html.EscapeString(strings.Join(names, " → ")), c.Total(), c[wf.StatusCompleted], c[wf.StatusFailed])
+	}
+	b.WriteString(`</tbody></table></div>`)
+	return template.HTML(b.String())
+}
+
+func (v *Views) definitionHTML(ctx context.Context, t wf.WorkflowType) (template.HTML, bool) {
+	def := v.definition(t)
+	if def == nil {
+		return "", false
+	}
+	counts, _ := v.Store.CountRuns(ctx)
+	runs, err := v.Store.ListRuns(ctx, runsListed)
+	c := counts[t]
+	var b strings.Builder
+	fmt.Fprintf(&b, `<nav class="breadcrumb"><ul><li><a href="%sdefinitions">Definitions</a></li><li class="is-active"><a>%s</a></li></ul></nav>`, v.Base, t)
+	fmt.Fprintf(&b, `<h1 class="title"><code>%s</code></h1><p class="subtitle">%s</p>`, t, html.EscapeString(def.Description))
+	if def.Purpose.Name != "" {
+		fmt.Fprintf(&b, `<p><strong>Purpose:</strong> %s — %s</p>`, html.EscapeString(def.Purpose.Name), html.EscapeString(def.Purpose.Description))
+	}
+	fmt.Fprintf(&b, `<p><strong>Instance key:</strong> %s — one instance per %s.</p>`, html.EscapeString(def.InstanceKey), html.EscapeString(def.InstanceKey))
+	b.WriteString(`<h2 class="subtitle mt-4">Steps</h2>`)
+	b.WriteString(`<table class="table is-narrow is-striped"><thead><tr><th>#</th><th>Step</th><th>Does</th><th>Code</th></tr></thead><tbody>`)
+	for i, st := range def.Steps {
+		fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong></td><td>%s</td><td>%s</td></tr>`, i+1, html.EscapeString(st.Name), html.EscapeString(st.Description), sourceLink(st))
+	}
+	b.WriteString(`</tbody></table>`)
+	v.diagramHTML(&b, t)
+	b.WriteString(`<h2 class="subtitle mt-4">Instances <span class="has-text-grey">(runs of this definition)</span></h2>`)
+	if err != nil {
+		errorNote(&b, err)
+	}
+	b.WriteString(`<div class="tags are-medium">`)
+	for _, st := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusCompleted, wf.StatusFailed} {
+		fmt.Fprintf(&b, `<span class="tag">%s&nbsp;<strong>%d</strong></span>`, st, c[st])
+	}
+	fmt.Fprintf(&b, `<span class="tag is-dark">instances&nbsp;<strong>%d</strong></span></div>`, c.Total())
+	b.WriteString(`<table class="table is-striped is-hoverable is-fullwidth is-narrow"><thead><tr><th>Instance</th><th>Business date</th><th>Status</th><th>Started</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
+	n := 0
+	for _, r := range runs {
+		if r.WorkflowType != t {
+			continue
+		}
+		n++
+		fmt.Fprintf(&b, `<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><a class="button is-small is-link is-light" href="%s">View</a></td></tr>`,
+			html.EscapeString(instanceName(r)), r.BusinessDate, statusTag(r.Status), stamp(r.StartedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID))
+	}
+	b.WriteString(`</tbody></table>`)
+	if n == 0 {
+		b.WriteString(`<p class="has-text-grey">No instances yet.</p>`)
+	}
+	return template.HTML(b.String()), true
+}

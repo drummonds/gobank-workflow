@@ -6,7 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `view` package (#21): the workflow pages (instances, an instance laid
+  over the steps it ran, definitions, a definition with its instances,
+  definition pictures and each instance as d2) as one `http.Handler` over a
+  read-only store. The host wraps pages in its layout via `Frame` and adds
+  type-specific content via `Detail`. A stage shows its latest record by
+  time, whatever order the store lists them in. Timestamps carry the date
+  and durations round to their scale, so runs of hours read as well as
+  runs of milliseconds.
+
 ### Changed
+- Demo app uses `view`; its account table and paging are its `Detail`.
 - Demo app: an instance's account steps are paged, 50 per page with
   Previous/Next and page links (`?page=N`, clamped), in account order (#18).
   Previously only the first 50 were shown, in record order.
