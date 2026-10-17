@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-17
+
+ - view package: reusable workflow pages (#21); demo account paging (#18)
+
 ### Added
 - `view` package (#21): the workflow pages (instances, an instance laid
   over the steps it ran, definitions, a definition with its instances,
