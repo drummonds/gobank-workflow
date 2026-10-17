@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-17
+
+ - Instances page as a filterable work queue; Store.ListRuns takes a RunFilter (#11)
+
 ### Added
 - `RunFilter` (#11): `Store.ListRuns` takes a filter — workflow types,
   statuses, created since (to the second), key contains (ignoring case,
