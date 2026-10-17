@@ -170,7 +170,7 @@ func TestMemStore_ListRuns(t *testing.T) {
 		})
 	}
 
-	runs, err := s.ListRuns(ctx, 3)
+	runs, err := s.ListRuns(ctx, RunFilter{Limit: 3})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}

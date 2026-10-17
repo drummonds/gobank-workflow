@@ -81,7 +81,7 @@ func (s *WasmState) BuildDashboardHTML() string {
 
 	// Run history from store.
 	ctx := context.Background()
-	runs, _ := s.store.ListRuns(ctx, 10)
+	runs, _ := s.store.ListRuns(ctx, wf.RunFilter{Limit: 10})
 	if len(runs) > 0 {
 		b.WriteString(`<div class="box">`)
 		b.WriteString(`<h3 class="title is-5">Recent Runs</h3>`)

@@ -1,5 +1,5 @@
 // Package view is the workflow pages an app shows over a store: the
-// instances, each instance laid over the steps it ran, the definitions and
+// instances as a work queue, each instance laid over the steps it ran, the definitions and
 // each definition with its own instances. It renders HTML fragments
 // (Bulma classes) and serves its own routes; the host wraps each page in
 // its own layout through Frame, and adds what only it knows about a
@@ -19,7 +19,7 @@ import (
 
 // Reader is the read side of a wf.Store the pages need.
 type Reader interface {
-	ListRuns(ctx context.Context, limit int) ([]wf.RunRecord, error)
+	ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error)
 	CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error)
 	GetRun(ctx context.Context, id string) (*wf.RunRecord, error)
 	ListSteps(ctx context.Context, runID string) ([]wf.StepResult, error)
@@ -33,7 +33,8 @@ type Page struct {
 
 // Views serves the workflow pages. Mount Handler under Base with the
 // prefix stripped, e.g. http.StripPrefix("/workflows", v.Handler()) for
-// Base "/workflows/". Base itself is the instances list.
+// Base "/workflows/". Base itself is the instances page: the queue of
+// work in hand, filtered by its GET form.
 type Views struct {
 	Store       Reader
 	Definitions []wf.Definition
@@ -52,14 +53,11 @@ type Views struct {
 	Frame func(w http.ResponseWriter, r *http.Request, p Page)
 }
 
-// runsListed is how many recent instances the pages list.
-const runsListed = 500
-
 // Handler serves the pages, the definition pictures and each instance as d2.
 func (v *Views) Handler() http.Handler {
 	mux := http.NewServeMux()
 	instances := func(w http.ResponseWriter, r *http.Request) {
-		v.frame(w, r, Page{Active: "instances", HTML: v.instancesHTML(r.Context())})
+		v.frame(w, r, Page{Active: "instances", HTML: template.HTML(v.instancesHTML(r))})
 	}
 	mux.HandleFunc("GET /{$}", instances)
 	mux.HandleFunc("GET /instances", instances)

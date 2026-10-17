@@ -17,10 +17,10 @@ import (
 // lock, since the simulation writes and reset replaces it.
 type lockedStore struct{ a *App }
 
-func (s lockedStore) ListRuns(ctx context.Context, limit int) ([]wf.RunRecord, error) {
+func (s lockedStore) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error) {
 	s.a.mu.Lock()
 	defer s.a.mu.Unlock()
-	return s.a.store.ListRuns(ctx, limit)
+	return s.a.store.ListRuns(ctx, f)
 }
 
 func (s lockedStore) CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {

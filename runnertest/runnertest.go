@@ -14,7 +14,7 @@ import (
 // key, so anything but exactly one run is a failure.
 func OnlyRun(t testing.TB, s wf.Store) wf.RunRecord {
 	t.Helper()
-	runs, err := s.ListRuns(context.Background(), 2)
+	runs, err := s.ListRuns(context.Background(), wf.RunFilter{Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

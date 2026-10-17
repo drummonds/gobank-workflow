@@ -84,8 +84,8 @@ func TestAdvancingTheSimulationCreatesTimeOrderedInstances(t *testing.T) {
 	if !(i1 > 0 && i1 < i2 && i2 < i3) {
 		t.Fatalf("instances not most-recent-first: %d %d %d", i1, i2, i3)
 	}
-	if n := strings.Count(body, `href="workflows/instances/`); n != 3 {
-		t.Fatalf("want 3 instance links, got %d", n)
+	if n := strings.Count(body, `">View</a>`); n != 3 {
+		t.Fatalf("want 3 instance rows, got %d", n)
 	}
 	_, sim := get(t, c, srv.URL+"/simulation")
 	mustContain(t, sim, "2026-01-04") // next business date to process
@@ -135,7 +135,7 @@ func TestInjectedFailureThenRetryLeavesOneInstanceForTheDate(t *testing.T) {
 	mustContain(t, sim, "2026-01-02") // the failed date is still the one to process
 	post(t, c, srv.URL+"/simulation/advance", url.Values{"days": {"1"}})
 	_, list = get(t, c, srv.URL+"/workflows/instances")
-	if strings.Contains(list, ">failed<") {
+	if strings.Contains(list, `class="tag is-danger"`) {
 		t.Fatalf("retry should have replaced the failed instance:\n%s", list)
 	}
 	if n := strings.Count(list, "<strong>2026-01-02</strong>"); n != 1 {

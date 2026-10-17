@@ -218,7 +218,7 @@ func TestSQLStore_ListRuns(t *testing.T) {
 		})
 	}
 
-	runs, err := store.ListRuns(ctx, 3)
+	runs, err := store.ListRuns(ctx, wf.RunFilter{Limit: 3})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestRetryReplacesFailedRun(t *testing.T) {
 	if err := store.CreateRun(ctx, second); err != nil {
 		t.Fatalf("retry after failure must be accepted: %v", err)
 	}
-	runs, _ := store.ListRuns(ctx, 10)
+	runs, _ := store.ListRuns(ctx, wf.RunFilter{Limit: 10})
 	if len(runs) != 1 || runs[0].ID != "attempt-2" {
 		t.Fatalf("want exactly the retry attempt, got %+v", runs)
 	}
@@ -320,6 +320,14 @@ func TestKeyedInstancesAndRestart(t *testing.T) {
 	storetest.WaitAndResume(t, store)
 	storetest.UndoneStep(t, store)
 	storetest.Revisions(t, store)
+}
+
+func TestFilteredRuns(t *testing.T) {
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storetest.FilteredRuns(t, store)
 }
 
 func TestSchemaHistoryIsFourVersions(t *testing.T) {

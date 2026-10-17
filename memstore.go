@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -224,19 +225,31 @@ func (m *MemStore) ListSteps(ctx context.Context, runID string) ([]StepResult, e
 	return result, nil
 }
 
-func (m *MemStore) ListRuns(ctx context.Context, limit int) ([]RunRecord, error) {
+func (m *MemStore) ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	sorted := make([]RunRecord, len(m.runs))
-	copy(sorted, m.runs)
+	var sorted []RunRecord
+	for _, r := range m.runs {
+		if f.matches(r) {
+			sorted = append(sorted, r)
+		}
+	}
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].CreatedAt.After(sorted[j].CreatedAt)
 	})
-	if limit > 0 && len(sorted) > limit {
-		sorted = sorted[:limit]
+	if f.Limit > 0 && len(sorted) > f.Limit {
+		sorted = sorted[:f.Limit]
 	}
 	return sorted, nil
+}
+
+func (f RunFilter) matches(r RunRecord) bool {
+	return (len(f.Types) == 0 || slices.Contains(f.Types, r.WorkflowType)) &&
+		(len(f.Statuses) == 0 || slices.Contains(f.Statuses, r.Status)) &&
+		!r.CreatedAt.Before(f.Since.Truncate(time.Second)) &&
+		strings.Contains(strings.ToLower(r.Key), strings.ToLower(f.KeyContains)) &&
+		(f.Revision == "" || r.Revision.ID == f.Revision)
 }
 
 func (m *MemStore) LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error) {

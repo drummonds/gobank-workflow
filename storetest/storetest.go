@@ -169,7 +169,7 @@ func Revisions(t *testing.T, s wf.Store) {
 	same("GetRun", got.Revision, first)
 	got, _ = s.FindRunByKey(ctx, wf.WorkflowRelease, "v3")
 	same("FindRunByKey", got.Revision, first)
-	runs, _ := s.ListRuns(ctx, 10)
+	runs, _ := s.ListRuns(ctx, wf.RunFilter{Limit: 10})
 	for _, r := range runs {
 		if r.ID == "rev1" {
 			same("ListRuns", r.Revision, first)
@@ -184,4 +184,54 @@ func Revisions(t *testing.T, s wf.Store) {
 	}
 	got, _ = s.GetRun(ctx, "rev1")
 	same("after RestartRun", got.Revision, next)
+}
+
+// FilteredRuns checks ListRuns under a RunFilter: each field narrows the
+// runs, fields combine, the newest come first and Limit caps them. s must
+// start empty.
+func FilteredRuns(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t0 := time.Date(2026, time.March, 1, 9, 0, 0, 0, time.UTC)
+	revA, revB := wf.NewRevision([]string{"build"}), wf.NewRevision([]string{"build", "tag"})
+	for _, r := range []wf.RunRecord{
+		{ID: "f1", WorkflowType: "ship", Key: "v1.0.0", Revision: revA, Status: wf.StatusCompleted, CreatedAt: t0},
+		{ID: "f2", WorkflowType: "ship", Key: "V1.1.0", Revision: revB, Status: wf.StatusFailed, CreatedAt: t0.Add(time.Hour)},
+		{ID: "f3", WorkflowType: "close", Status: wf.StatusRunning, CreatedAt: t0.Add(2 * time.Hour)},
+		{ID: "f4", WorkflowType: "ship", Key: "v2.0.0_rc1", Revision: revB, Status: wf.StatusWaiting, CreatedAt: t0.Add(24 * time.Hour)},
+	} {
+		r.BusinessDate = wf.BusinessDateFrom(r.CreatedAt)
+		r.StartedAt = r.CreatedAt
+		if err := s.CreateRun(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		f    wf.RunFilter
+		want []string
+	}{
+		{"no filter is every run, newest first", wf.RunFilter{}, []string{"f4", "f3", "f2", "f1"}},
+		{"limit keeps the newest", wf.RunFilter{Limit: 2}, []string{"f4", "f3"}},
+		{"types", wf.RunFilter{Types: []wf.WorkflowType{"ship"}}, []string{"f4", "f2", "f1"}},
+		{"statuses", wf.RunFilter{Statuses: []wf.RunStatus{wf.StatusFailed, wf.StatusWaiting}}, []string{"f4", "f2"}},
+		{"since is created at or after", wf.RunFilter{Since: t0.Add(time.Hour)}, []string{"f4", "f3", "f2"}},
+		{"key contains, ignoring case", wf.RunFilter{KeyContains: "v1."}, []string{"f2", "f1"}},
+		{"key contains takes _ literally", wf.RunFilter{KeyContains: "0_r"}, []string{"f4"}},
+		{"key contains takes % literally", wf.RunFilter{KeyContains: "%"}, nil},
+		{"revision", wf.RunFilter{Revision: revB.ID}, []string{"f4", "f2"}},
+		{"fields combine", wf.RunFilter{Types: []wf.WorkflowType{"ship"}, Statuses: []wf.RunStatus{wf.StatusCompleted, wf.StatusWaiting}, Limit: 1}, []string{"f4"}},
+	} {
+		runs, err := s.ListRuns(ctx, c.f)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		var got []string
+		for _, r := range runs {
+			got = append(got, r.ID)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
 }

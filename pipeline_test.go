@@ -62,7 +62,7 @@ func TestRunDailyRetryKeepsTheInstanceID(t *testing.T) {
 	if rec.ID != failed.ID || rec.Status != StatusCompleted {
 		t.Fatalf("retry should complete the same instance: was %s, got %+v", failed.ID, rec)
 	}
-	runs, _ := store.ListRuns(ctx, 10)
+	runs, _ := store.ListRuns(ctx, RunFilter{Limit: 10})
 	if len(runs) != 1 {
 		t.Fatalf("want one instance, got %d", len(runs))
 	}

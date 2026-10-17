@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	db "git.bytestone.uk/hum3/gobank-db"
@@ -233,10 +234,15 @@ func (s *Store) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, e
 	return results, rows.Err()
 }
 
-func (s *Store) ListRuns(ctx context.Context, limit int) ([]wf.RunRecord, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
-		 FROM workflow_runs ORDER BY created_at DESC LIMIT ?`, limit)
+func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error) {
+	where, args := runFilterSQL(f)
+	query := `SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
+		 FROM workflow_runs` + where + ` ORDER BY created_at DESC`
+	if f.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, f.Limit)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +258,54 @@ func (s *Store) ListRuns(ctx context.Context, limit int) ([]wf.RunRecord, error)
 	}
 	return results, rows.Err()
 }
+
+// runFilterSQL is the WHERE clause, if any, for a filter and its arguments.
+func runFilterSQL(f wf.RunFilter) (string, []any) {
+	var conds []string
+	var args []any
+	in := func(col string, vals []string) {
+		conds = append(conds, col+` IN (?`+strings.Repeat(`, ?`, len(vals)-1)+`)`)
+		for _, v := range vals {
+			args = append(args, v)
+		}
+	}
+	if len(f.Types) > 0 {
+		vals := make([]string, len(f.Types))
+		for i, t := range f.Types {
+			vals[i] = string(t)
+		}
+		in(`workflow_type`, vals)
+	}
+	if len(f.Statuses) > 0 {
+		vals := make([]string, len(f.Statuses))
+		for i, st := range f.Statuses {
+			vals[i] = string(st)
+		}
+		in(`status`, vals)
+	}
+	if !f.Since.IsZero() {
+		// created_at is RFC 3339 text, whose fraction and zone do not sort;
+		// the bound to the second without them is a prefix of every
+		// stamp in that second, so it compares as a time.
+		conds = append(conds, `created_at >= ?`)
+		args = append(args, f.Since.UTC().Format("2006-01-02T15:04:05"))
+	}
+	if f.KeyContains != "" {
+		conds = append(conds, `instance_key ILIKE ? ESCAPE '\'`)
+		args = append(args, "%"+likeEscaper.Replace(f.KeyContains)+"%")
+	}
+	if f.Revision != "" {
+		conds = append(conds, `revision = ?`)
+		args = append(args, f.Revision)
+	}
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return ` WHERE ` + strings.Join(conds, ` AND `), args
+}
+
+// likeEscaper makes a string match itself in a LIKE pattern escaped by \.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func (s *Store) LastCompletedDate(ctx context.Context, wfType wf.WorkflowType) (wf.BusinessDate, error) {
 	var dateStr sql.NullString

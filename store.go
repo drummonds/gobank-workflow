@@ -1,6 +1,9 @@
 package workflow
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Store persists workflow run history and step results.
 type Store interface {
@@ -53,8 +56,8 @@ type Store interface {
 	// was undone, so the next attempt runs it again.
 	DeleteStep(ctx context.Context, runID, stepName string) error
 
-	// ListRuns returns recent runs, most recent first.
-	ListRuns(ctx context.Context, limit int) ([]RunRecord, error)
+	// ListRuns returns the runs the filter matches, most recent first.
+	ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, error)
 
 	// CountRuns returns, for every workflow type that has run, how many
 	// runs (instances) exist in each status.
@@ -63,4 +66,17 @@ type Store interface {
 	// LastCompletedDate returns the most recent business date with a
 	// completed run of the given workflow type. Returns zero BusinessDate if none.
 	LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error)
+}
+
+// RunFilter narrows ListRuns. Each set field must match; the zero value
+// matches every run.
+type RunFilter struct {
+	Types    []WorkflowType // any of these; empty is any type
+	Statuses []RunStatus    // any of these; empty is any status
+	// Since is the earliest creation time, to the second.
+	Since time.Time
+	// KeyContains matches runs whose key contains it, ignoring case.
+	KeyContains string
+	Revision    string // a Revision.ID
+	Limit       int    // at most this many, the newest; 0 is no limit
 }

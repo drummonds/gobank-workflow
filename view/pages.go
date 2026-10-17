@@ -84,28 +84,6 @@ func errorNote(b *strings.Builder, err error) {
 	fmt.Fprintf(b, `<div class="notification is-danger">%s</div>`, html.EscapeString(err.Error()))
 }
 
-func (v *Views) instancesHTML(ctx context.Context) template.HTML {
-	runs, err := v.Store.ListRuns(ctx, runsListed)
-	var b strings.Builder
-	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">Most recent first</p>`)
-	if err != nil {
-		errorNote(&b, err)
-		return template.HTML(b.String())
-	}
-	if len(runs) == 0 {
-		b.WriteString(`<div class="notification">No instances yet.</div>`)
-		return template.HTML(b.String())
-	}
-	b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth is-narrow">`)
-	b.WriteString(`<thead><tr><th>Instance</th><th>Definition</th><th>Business date</th><th>Status</th><th>Started</th><th>Completed</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
-	for _, r := range runs {
-		fmt.Fprintf(&b, `<tr><td><strong>%s</strong></td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><a class="button is-small is-link is-light" href="%s">View</a></td></tr>`,
-			html.EscapeString(instanceName(r)), v.DefinitionHref(r.WorkflowType), r.WorkflowType, r.BusinessDate, statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID))
-	}
-	b.WriteString(`</tbody></table></div>`)
-	return template.HTML(b.String())
-}
-
 // instanceHTML is one instance: what it is, its steps laid over the
 // revision it ran when they are stages, then the host's Detail.
 func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
@@ -242,8 +220,7 @@ func (v *Views) definitionHTML(ctx context.Context, t wf.WorkflowType) (template
 	if def == nil {
 		return "", false
 	}
-	counts, _ := v.Store.CountRuns(ctx)
-	runs, err := v.Store.ListRuns(ctx, runsListed)
+	counts, err := v.Store.CountRuns(ctx)
 	c := counts[t]
 	var b strings.Builder
 	fmt.Fprintf(&b, `<nav class="breadcrumb"><ul><li><a href="%sdefinitions">Definitions</a></li><li class="is-active"><a>%s</a></li></ul></nav>`, v.Base, t)
@@ -268,19 +245,7 @@ func (v *Views) definitionHTML(ctx context.Context, t wf.WorkflowType) (template
 		fmt.Fprintf(&b, `<span class="tag">%s&nbsp;<strong>%d</strong></span>`, st, c[st])
 	}
 	fmt.Fprintf(&b, `<span class="tag is-dark">instances&nbsp;<strong>%d</strong></span></div>`, c.Total())
-	b.WriteString(`<table class="table is-striped is-hoverable is-fullwidth is-narrow"><thead><tr><th>Instance</th><th>Business date</th><th>Status</th><th>Started</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
-	n := 0
-	for _, r := range runs {
-		if r.WorkflowType != t {
-			continue
-		}
-		n++
-		fmt.Fprintf(&b, `<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><a class="button is-small is-link is-light" href="%s">View</a></td></tr>`,
-			html.EscapeString(instanceName(r)), r.BusinessDate, statusTag(r.Status), stamp(r.StartedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID))
-	}
-	b.WriteString(`</tbody></table>`)
-	if n == 0 {
-		b.WriteString(`<p class="has-text-grey">No instances yet.</p>`)
-	}
+	fmt.Fprintf(&b, `<p><a href="%s">Filter these instances</a></p>`, html.EscapeString(v.queueHref(queueFilter{Workflow: string(t)})))
+	v.queueHTML(ctx, &b, queueFilter{Workflow: string(t)})
 	return template.HTML(b.String()), true
 }

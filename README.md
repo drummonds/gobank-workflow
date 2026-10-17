@@ -11,7 +11,7 @@ gobank-workflow provides:
 - **Daily Tasks** — interest accrual, end-of-day processing, balance snapshots
 - **Scheduled Jobs** — recurring tasks on configurable schedules
 - **Workflow Orchestration** — multi-step banking processes (account opening, payments settlement)
-- **Workflow pages** (`view`) — instances and definitions as HTML an app mounts under its own path and wraps in its own layout; a `Detail` hook adds what only the app knows about a workflow type
+- **Workflow pages** (`view`) — instances as a filterable work queue, and definitions, as HTML an app mounts under its own path and wraps in its own layout; a `Detail` hook adds what only the app knows about a workflow type
 
 ## Status
 

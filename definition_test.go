@@ -87,7 +87,7 @@ func checkRetryReplacesFailedRun(t *testing.T, s Store) {
 	if err := s.CreateRun(ctx, second); err != nil {
 		t.Fatalf("retry after failure must be accepted: %v", err)
 	}
-	runs, err := s.ListRuns(ctx, 10)
+	runs, err := s.ListRuns(ctx, RunFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

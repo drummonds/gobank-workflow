@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -35,8 +36,13 @@ func (s *store) ListSteps(_ context.Context, runID string) ([]wf.StepResult, err
 	return s.steps[runID], nil
 }
 
-func (s *store) ListRuns(_ context.Context, limit int) ([]wf.RunRecord, error) {
-	return s.runs[:min(limit, len(s.runs))], nil
+// ListRuns filters as the memory store does.
+func (s *store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error) {
+	m := wf.NewMemStore()
+	for _, r := range s.runs {
+		_ = m.CreateRun(ctx, &r)
+	}
+	return m.ListRuns(ctx, f)
 }
 
 func (s *store) CountRuns(context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
@@ -106,23 +112,96 @@ func mustContain(t *testing.T, body string, wants ...string) {
 	}
 }
 
-func TestInstancesAreListedNewestFirstUnderTheBase(t *testing.T) {
-	s := &store{runs: []wf.RunRecord{
-		run("r2", shipping, "v1.2.0", wf.StatusFailed, t0.Add(time.Hour)),
-		run("r1", shipping, "v1.1.0", wf.StatusCompleted, t0),
+// queue is a store with work in hand: two purposes, every status.
+func queue() *store {
+	day := t0.Add(-24 * time.Hour)
+	return &store{runs: []wf.RunRecord{
+		run("c-old", shipping, "v1.0.0", wf.StatusCompleted, day),
+		run("f", shipping, "v1.1.0", wf.StatusFailed, t0.Add(time.Hour)),
+		run("w", shipping, "v1.2.0", wf.StatusWaiting, t0.Add(2*time.Hour)),
+		run("c-new", shipping, "v1.3.0", wf.StatusCompleted, t0.Add(3*time.Hour)),
+		run("eod", accrual, "", wf.StatusRunning, t0.Add(4*time.Hour)),
 	}}
-	p := serve(t, views(s), "/workflows/instances")
+}
+
+// inOrder fails unless each want appears in body, each after the last.
+func inOrder(t *testing.T, body string, wants ...string) {
+	t.Helper()
+	at := 0
+	for _, w := range wants {
+		i := strings.Index(body[at:], w)
+		if i < 0 {
+			t.Fatalf("%q missing, or not after %q\n---\n%s", w, body[:at], body)
+		}
+		at += i + len(w)
+	}
+}
+
+func TestTheQueueListsCurrentInstancesBeforeTheNewestCompletedGroupedByPurpose(t *testing.T) {
+	p := serve(t, views(queue()), "/workflows/instances")
 	if p.status != 200 || p.active != "instances" {
 		t.Fatalf("status %d active %q", p.status, p.active)
 	}
-	mustContain(t, p.body, `href="/workflows/instances/r2"`, `href="/workflows/definitions/ship"`, `class="tag is-danger"`)
-	if strings.Index(p.body, "v1.2.0") > strings.Index(p.body, "v1.1.0") {
-		t.Fatal("instances should be newest first, as the store lists them")
-	}
-	if root := serve(t, views(s), "/workflows/"); root.body != p.body {
-		t.Fatal("the base itself should be the instances list")
+	queued := p.body[strings.Index(p.body, "</form>"):]
+	// The group with the newest current work comes first. In a group,
+	// current instances come before completed ones, each newest first; the
+	// headline is the purpose's newest instance, whatever its status.
+	inOrder(t, queued, "end of day", "release", "v1.3.0", "completed", "via", "ship",
+		`href="/workflows/instances/w"`, `href="/workflows/instances/f"`, `href="/workflows/instances/c-new"`, `href="/workflows/instances/c-old"`)
+	if root := serve(t, views(queue()), "/workflows/"); root.body != p.body {
+		t.Fatal("the base itself should be the queue")
 	}
 	mustContain(t, serve(t, views(&store{}), "/workflows/instances").body, "No instances yet")
+}
+
+func TestTheQueueIsCappedAtN(t *testing.T) {
+	body := serve(t, views(queue()), "/workflows/instances?n=2").body
+	mustContain(t, body, `href="/workflows/instances/eod"`, `href="/workflows/instances/w"`, "first 2")
+	if strings.Contains(body, `href="/workflows/instances/f"`) {
+		t.Fatalf("n=2 should show only the two newest current instances:\n%s", body)
+	}
+}
+
+func TestTheFilterNarrowsTheQueue(t *testing.T) {
+	for _, c := range []struct {
+		query string
+		shown []string // instance ids listed
+		echo  string   // the form keeps the filter
+	}{
+		{"purpose=release", []string{"w", "f", "c-new", "c-old"}, `<option value="release" selected>`},
+		{"workflow=accrue", []string{"eod"}, `<option value="accrue" selected>`},
+		{"status=failed", []string{"f"}, `<option value="failed" selected>`},
+		{"since=2026-03-01", []string{"eod", "w", "f", "c-new"}, `value="2026-03-01"`},
+		{"key=1.3", []string{"c-new"}, `value="1.3"`},
+		{"workflow=ship&revision=" + shipping.Revision().ID, []string{"w", "f", "c-new", "c-old"}, shipping.Revision().ID},
+		{"purpose=release&workflow=accrue", nil, ""},
+		{"purpose=nobody", nil, ""},
+	} {
+		body := serve(t, views(queue()), "/workflows/instances?"+c.query).body
+		for _, id := range []string{"eod", "w", "f", "c-new", "c-old"} {
+			if listed := strings.Contains(body, `href="/workflows/instances/`+id+`"`); listed != slices.Contains(c.shown, id) {
+				t.Errorf("%s: %s listed %v, want %v", c.query, id, listed, !listed)
+			}
+		}
+		mustContain(t, body, c.echo)
+		if len(c.shown) == 0 {
+			mustContain(t, body, "No instances match")
+		}
+	}
+}
+
+func TestTheQueueDrillsDownFromPurposeToWorkflowToRevision(t *testing.T) {
+	body := serve(t, views(queue()), "/workflows/instances").body
+	mustContain(t, body, `href="/workflows/instances?purpose=release"`, `href="/workflows/instances?workflow=ship"`,
+		`href="/workflows/instances?revision=`+shipping.Revision().ID+`&amp;workflow=ship"`)
+	// A workflow's queue leads on to its definition.
+	mustContain(t, serve(t, views(queue()), "/workflows/instances?workflow=ship").body, `href="/workflows/definitions/ship"`)
+}
+
+func TestARunOfAnUnknownDefinitionIsQueuedUnderItsType(t *testing.T) {
+	r := wf.RunRecord{ID: "x1", WorkflowType: "retired", Key: "k", Status: wf.StatusFailed, StartedAt: t0, CreatedAt: t0}
+	body := serve(t, views(&store{runs: []wf.RunRecord{r}}), "/workflows/instances").body
+	mustContain(t, body, "retired", `href="/workflows/instances/x1"`)
 }
 
 func TestAnInstanceShowsEachStageInItsLatestRecordedState(t *testing.T) {
@@ -195,7 +274,9 @@ func TestDefinitionsDescribeTheirStepsAndCountTheirInstances(t *testing.T) {
 	mustContain(t, list.body, "release", "Get a version out.", `href="/workflows/definitions/ship"`, "build → tag → publish", "2 <span", "1 completed, 1 failed")
 
 	one := serve(t, views(s), "/workflows/definitions/ship")
-	mustContain(t, one.body, "Ship one version.", "one instance per version", "Compile it.", `href="/workflows/instances/r1"`, `href="/workflows/instances/r2"`)
+	mustContain(t, one.body, "Ship one version.", "one instance per version", "Compile it.", `href="/workflows/instances/r1"`, `href="/workflows/instances/r2"`,
+		`href="/workflows/instances?workflow=ship"`)
+	inOrder(t, one.body, `<strong>v1.2.0</strong>`, `<strong>v1.1.0</strong>`)
 	if strings.Contains(serve(t, views(s), "/workflows/definitions/accrue").body, "v1.1.0") {
 		t.Fatal("a definition lists only its own instances")
 	}
