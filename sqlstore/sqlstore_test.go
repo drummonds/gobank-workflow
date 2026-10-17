@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"testing"
 	"time"
 
@@ -330,8 +331,84 @@ func TestFilteredRuns(t *testing.T) {
 	storetest.FilteredRuns(t, store)
 }
 
-func TestSchemaHistoryIsFourVersions(t *testing.T) {
-	if len(Migrations) != 4 || Migrations[1].Phase != db.Expand || Migrations[2].Phase != db.Contract || Migrations[3].Phase != db.Expand {
-		t.Fatalf("expected v1 expand, v2 expand, v3 contract, v4 expand; got %+v", Migrations)
+func TestTimeOrder(t *testing.T) {
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storetest.TimeOrder(t, store)
+}
+
+// Stamps written before v5 by time.RFC3339Nano, trailing zeros dropped,
+// sort in time order once v5 has padded them.
+func TestV5PadsEarlierStamps(t *testing.T) {
+	ctx := context.Background()
+	d := newTestDB(t)
+	if _, err := db.Apply(ctx, d, Migrations[:4]); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []struct{ id, key, at string }{
+		{"r1", "a", "2026-04-01T09:00:05.5Z"},
+		{"r2", "b", "2026-04-01T09:00:05.52Z"},
+		{"r0", "c", "2026-04-01T09:00:05Z"},
+	} {
+		if _, err := d.ExecContext(ctx,
+			`INSERT INTO workflow_runs (id, workflow_type, business_date, instance_key, status, started_at, created_at) VALUES (?, 'ship', '2026-04-01', ?, 'running', ?, ?)`,
+			r.id, r.key, r.at, r.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, st := range []struct{ id, at string }{
+		{"s1", "2026-04-01T09:00:05.5Z"},
+		{"s2", "2026-04-01T09:00:05.52Z"},
+		{"s0", "2026-04-01T09:00:05Z"},
+	} {
+		if _, err := d.ExecContext(ctx,
+			`INSERT INTO workflow_steps (id, run_id, account_id, step_name, created_at) VALUES (?, 'r1', '', 'build', ?)`,
+			st.id, st.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store, err := New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, err := store.ListRuns(ctx, wf.RunFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotRuns []string
+	for _, r := range runs {
+		gotRuns = append(gotRuns, r.ID)
+	}
+	if want := []string{"r2", "r1", "r0"}; !slices.Equal(gotRuns, want) {
+		t.Errorf("runs: got %v, want %v", gotRuns, want)
+	}
+	if want := time.Date(2026, time.April, 1, 9, 0, 5, 520_000_000, time.UTC); !runs[0].CreatedAt.Equal(want) {
+		t.Errorf("r2 created at %v, want %v", runs[0].CreatedAt, want)
+	}
+	steps, err := store.ListSteps(ctx, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotSteps []string
+	for _, st := range steps {
+		gotSteps = append(gotSteps, st.ID)
+	}
+	if want := []string{"s0", "s1", "s2"}; !slices.Equal(gotSteps, want) {
+		t.Errorf("steps: got %v, want %v", gotSteps, want)
+	}
+}
+
+func TestSchemaHistoryIsFiveVersions(t *testing.T) {
+	want := []db.Phase{db.Expand, db.Expand, db.Contract, db.Expand, db.Expand}
+	if len(Migrations) != len(want) {
+		t.Fatalf("expected %d migrations, got %+v", len(want), Migrations)
+	}
+	for i, m := range Migrations {
+		if m.Phase != want[i] {
+			t.Fatalf("v%d is %v, want %v", m.Version, m.Phase, want[i])
+		}
 	}
 }

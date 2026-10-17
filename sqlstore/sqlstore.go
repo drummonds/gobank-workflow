@@ -11,6 +11,10 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 )
 
+// stampLayout is how a time is written: fixed width, so that text order
+// (all SQLite has) is time order. Every stamp is written in UTC.
+const stampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 // Store implements wf.Store using a *sql.DB (go-postgres / pglike compatible).
 type Store struct {
 	db *sql.DB
@@ -101,8 +105,8 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 		`INSERT INTO workflow_runs (id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, error_message, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		run.ID, string(run.WorkflowType), run.BusinessDate.String(), run.Key, run.Revision.ID, stepNames,
-		string(run.Status), run.StartedAt.UTC().Format(time.RFC3339Nano),
-		run.Error, run.CreatedAt.UTC().Format(time.RFC3339Nano),
+		string(run.Status), run.StartedAt.UTC().Format(stampLayout),
+		run.Error, run.CreatedAt.UTC().Format(stampLayout),
 	)
 	return err
 }
@@ -132,7 +136,7 @@ func (s *Store) RestartRun(ctx context.Context, id string, rev wf.Revision) erro
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC().Format(stampLayout)
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE workflow_runs SET status = 'running', started_at = ?, completed_at = NULL, error_message = '', revision = ?, step_names = ? WHERE id = ?`,
 		now, rev.ID, stepNames, id)
@@ -178,7 +182,7 @@ func (s *Store) DeleteStep(ctx context.Context, runID, stepName string) error {
 }
 
 func (s *Store) CompleteRun(ctx context.Context, id string) error {
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC().Format(stampLayout)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE workflow_runs SET status = 'completed', completed_at = ? WHERE id = ?`,
 		now, id)
@@ -186,7 +190,7 @@ func (s *Store) CompleteRun(ctx context.Context, id string) error {
 }
 
 func (s *Store) FailRun(ctx context.Context, id string, errMsg string) error {
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC().Format(stampLayout)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE workflow_runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?`,
 		now, errMsg, id)
@@ -204,7 +208,7 @@ func (s *Store) RecordStep(ctx context.Context, step *wf.StepResult) error {
 		step.ID, step.RunID, step.AccountID, step.StepName, string(status), step.Error,
 		step.OpeningBalance, step.ClosingBalance, step.InterestAmount,
 		step.Exponent, step.DurationNs,
-		step.CreatedAt.UTC().Format(time.RFC3339Nano),
+		step.CreatedAt.UTC().Format(stampLayout),
 	)
 	return err
 }
@@ -296,9 +300,8 @@ func runFilterSQL(f wf.RunFilter) (string, []any) {
 		in(`status`, vals)
 	}
 	if !f.Since.IsZero() {
-		// created_at is RFC 3339 text, whose fraction and zone do not sort;
-		// the bound to the second without them is a prefix of every
-		// stamp in that second, so it compares as a time.
+		// The bound to the second is a prefix of every stamp in that
+		// second, so it compares as a time.
 		conds = append(conds, `created_at >= ?`)
 		args = append(args, f.Since.UTC().Format("2006-01-02T15:04:05"))
 	}

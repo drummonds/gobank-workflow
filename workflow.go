@@ -26,7 +26,7 @@ const (
 // SchemaVersion is the SQL schema version this code expects. The
 // sqlstore package's migration history must end at it; the memory store
 // has no schema.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // Purpose is what a workflow achieves; its workflows are the ways of
 // achieving it. It lives in the registry only: a run's purpose is its

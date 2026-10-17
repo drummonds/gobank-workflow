@@ -10,3 +10,4 @@ pages_deploy:
     site: gobank-workflow
 maturity:
   code: 1
+fragments: true

@@ -241,3 +241,56 @@ func FilteredRuns(t *testing.T, s wf.Store) {
 		}
 	}
 }
+
+// TimeOrder checks that ListRuns and ListSteps order by the time a record
+// was created, not by how its stamp happens to print: 05.5 is before 05.52.
+func TimeOrder(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t0 := time.Date(2026, time.April, 1, 9, 0, 5, 0, time.UTC)
+	for _, r := range []wf.RunRecord{
+		{ID: "o1", WorkflowType: "ship", Key: "a", CreatedAt: t0.Add(500 * time.Millisecond)},
+		{ID: "o2", WorkflowType: "ship", Key: "b", CreatedAt: t0.Add(520 * time.Millisecond)},
+		{ID: "o0", WorkflowType: "ship", Key: "c", CreatedAt: t0},
+	} {
+		r.BusinessDate = wf.BusinessDateFrom(r.CreatedAt)
+		r.Status = wf.StatusRunning
+		r.StartedAt = r.CreatedAt
+		if err := s.CreateRun(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runs, err := s.ListRuns(ctx, wf.RunFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotRuns []string
+	for _, r := range runs {
+		gotRuns = append(gotRuns, r.ID)
+	}
+	if want := []string{"o2", "o1", "o0"}; !slices.Equal(gotRuns, want) {
+		t.Errorf("runs: got %v, want %v", gotRuns, want)
+	}
+
+	for _, st := range []wf.StepResult{
+		{ID: "s1", StepName: "build", CreatedAt: t0.Add(500 * time.Millisecond)},
+		{ID: "s2", StepName: "tag", CreatedAt: t0.Add(520 * time.Millisecond)},
+		{ID: "s0", StepName: "check", CreatedAt: t0},
+	} {
+		st.RunID = "o1"
+		if err := s.RecordStep(ctx, &st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	steps, err := s.ListSteps(ctx, "o1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotSteps []string
+	for _, st := range steps {
+		gotSteps = append(gotSteps, st.ID)
+	}
+	if want := []string{"s0", "s1", "s2"}; !slices.Equal(gotSteps, want) {
+		t.Errorf("steps: got %v, want %v", gotSteps, want)
+	}
+}

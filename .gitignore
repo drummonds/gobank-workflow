@@ -4,3 +4,5 @@
 .vscode/
 task-plus.local.yaml
 .tp-release-comment
+.tp-release-inflight
+.tp-release.yml

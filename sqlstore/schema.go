@@ -10,7 +10,22 @@ var Migrations = []db.Migration{
 	{Version: 2, Name: "instance keys and step status", Phase: db.Expand, SQL: keysAndStepStatusSQL},
 	{Version: 3, Name: "drop date-only uniqueness", Phase: db.Contract, SQL: dropDateOnlyIndexSQL},
 	{Version: 4, Name: "run revisions", Phase: db.Expand, SQL: revisionsSQL},
+	{Version: 5, Name: "fixed-width created_at", Phase: db.Expand, SQL: fixedWidthStampsSQL},
 }
+
+// fixedWidthStampsSQL (v5, expand) pads the created_at stamps written
+// before v5 by time.RFC3339Nano, which drops trailing zeros, to the
+// fixed-width layout the store now writes, so that their text order is
+// time order: 05Z and 05.5Z become 05.000000000Z and 05.500000000Z.
+const fixedWidthStampsSQL = `
+UPDATE workflow_runs SET created_at = ` + padStamp + ` WHERE ` + shortStamp + `;
+UPDATE workflow_steps SET created_at = ` + padStamp + ` WHERE ` + shortStamp + `;
+`
+
+const (
+	shortStamp = `created_at LIKE '____-__-__T__:__:__%Z' AND length(created_at) < 30`
+	padStamp   = `substr(created_at, 1, 19) || '.' || substr(CASE WHEN length(created_at) > 20 THEN substr(created_at, 21, length(created_at) - 21) ELSE '' END || '000000000', 1, 9) || 'Z'`
+)
 
 // revisionsSQL (v4, expand) records on each run the revision its latest
 // attempt ran: the id, and the step names as a JSON array so the run

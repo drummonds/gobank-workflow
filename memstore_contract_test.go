@@ -15,3 +15,4 @@ func TestMemStore_WaitAndResume(t *testing.T) { storetest.WaitAndResume(t, wf.Ne
 func TestMemStore_UndoneStep(t *testing.T)    { storetest.UndoneStep(t, wf.NewMemStore()) }
 func TestMemStore_Revisions(t *testing.T)     { storetest.Revisions(t, wf.NewMemStore()) }
 func TestMemStore_FilteredRuns(t *testing.T)  { storetest.FilteredRuns(t, wf.NewMemStore()) }
+func TestMemStore_TimeOrder(t *testing.T)     { storetest.TimeOrder(t, wf.NewMemStore()) }
