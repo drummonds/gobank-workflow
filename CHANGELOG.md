@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   read-only store. The host wraps pages in its layout via `Frame` and adds
   type-specific content via `Detail`. A stage shows its latest record by
   time, whatever order the store lists them in. Timestamps carry the date
-  and durations round to their scale, so runs of hours read as well as
+  to the millisecond, and durations round to their scale, so runs of hours read as well as
   runs of milliseconds.
 
 ### Changed

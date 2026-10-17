@@ -27,12 +27,13 @@ func statusTag(s wf.RunStatus) string {
 	return fmt.Sprintf(`<span class="tag %s">%s</span>`, class, s)
 }
 
-// stamp is a moment with its date: runs can span days.
+// stamp is a moment with its date, since runs can span days, and its
+// milliseconds, since stages can be shorter than a second.
 func stamp(t time.Time) string {
 	if t.IsZero() {
 		return "—"
 	}
-	return t.Local().Format("2006-01-02 15:04:05")
+	return t.Local().Format("2006-01-02 15:04:05.000")
 }
 
 // took is a duration rounded to its scale: seconds for minutes and more,

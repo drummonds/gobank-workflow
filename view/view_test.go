@@ -233,14 +233,14 @@ func TestAnInstanceIsServedAsD2(t *testing.T) {
 	mustContain(t, p.body, "build.class: completed", "tag.class: failed", "publish.class: not_run")
 }
 
-func TestTimesCarryTheDateAndDurationsRoundToTheirScale(t *testing.T) {
+func TestTimesCarryTheDateToTheMillisecondAndDurationsRoundToTheirScale(t *testing.T) {
 	long := run("l1", shipping, "v2.0.0", wf.StatusCompleted, t0)
 	long.CompletedAt = t0.Add(3*time.Hour + 12*time.Minute + 5*time.Second + 123*time.Millisecond)
 	short := run("s1", shipping, "v2.0.1", wf.StatusCompleted, t0)
 	short.CompletedAt = t0.Add(1234567 * time.Nanosecond)
 	s := &store{runs: []wf.RunRecord{long, short}}
 	body := serve(t, views(s), "/workflows/instances").body
-	mustContain(t, body, t0.Local().Format("2006-01-02 15:04:05"), "3h12m5s", "1.235ms")
+	mustContain(t, body, t0.Local().Format("2006-01-02 15:04:05.000"), "3h12m5s", "1.235ms")
 	if strings.Contains(body, "3h12m5.123s") {
 		t.Fatal("a run of hours should not be timed to the millisecond")
 	}
