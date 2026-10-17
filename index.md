@@ -8,6 +8,7 @@ Banking workflow engine -- idempotent daily processing, business date management
 - [Daily processing demo](demo/index.html) -- interactive simulation of daily workflow processing with timing chart
 - [Release pipeline demo](demo/deploy.html) -- step through shipping a new gobank version; inject a failure and watch the resume retry only the failed stage
 - [Writing workflows](writing-workflows.html) -- the authoring contract: definitions, stages and waiting, resume and what it demands of a stage, what the host supplies, testing, drawing, a worked example and a checklist
+- [Database schema](schema.html) -- the tables, their keys and every column, with the migration that added it
 - [Comparison with other workflow engines](comparison.html) -- Go libraries and the larger systems (Temporal, Camunda, Flowable, Spring Batch) set against this one: feature matrices, the closest relatives, and the gaps worth closing
 - [Changelog](CHANGELOG.html)
 - [Roadmap](ROADMAP.html)
@@ -71,8 +72,12 @@ The SQL schema is versioned with [gobank-db](https://gobank-db.docs.bytestone.uk
 | 1 | workflow runs and steps | expand | `workflow_runs` (one row per instance), `workflow_steps` (one row per step of a run) |
 | 2 | instance keys and step status | expand | `workflow_runs.instance_key` with a unique index on (type, date, key) alongside the old one; `workflow_steps.status` and `error_message` |
 | 3 | drop date-only uniqueness | contract | drops the (type, date) unique index that v2 superseded |
+| 4 | run revisions | expand | `workflow_runs.revision` and `step_names`: the revision the latest attempt ran |
+| 5 | fixed-width created_at | expand | pads `created_at` stamps written before v5 to the fixed-width layout, so text order is time order |
 
 Versions 2 and 3 are one expand/contract pair: gobank-db's lint refuses a `DROP INDEX` in an expand migration, so the replacement index is added first and the old one removed in a separate contract step.
+
+The tables and their columns are on the [database schema](schema.html) page.
 
 ## Demo app
 

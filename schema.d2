@@ -1,0 +1,46 @@
+# The tables of a migrated gobank-workflow database and how they key
+# together. One view, one question: what is stored, and what refers to
+# what. Columns and their meaning are in schema.md.
+
+direction: right
+
+workflow_runs: {
+  shape: sql_table
+  id: TEXT {constraint: primary_key}
+  workflow_type: TEXT {constraint: unique}
+  business_date: DATE {constraint: unique}
+  instance_key: VARCHAR(100) {constraint: unique}
+  status: TEXT
+  revision: VARCHAR(16)
+  step_names: TEXT
+  started_at: TIMESTAMPTZ
+  completed_at: TIMESTAMPTZ
+  error_message: TEXT
+  created_at: TIMESTAMPTZ
+}
+
+workflow_steps: {
+  shape: sql_table
+  id: TEXT {constraint: primary_key}
+  run_id: TEXT {constraint: foreign_key}
+  account_id: TEXT
+  step_name: TEXT
+  status: VARCHAR(20)
+  error_message: TEXT
+  opening_balance: INTEGER
+  closing_balance: INTEGER
+  interest_amount: INTEGER
+  exponent: INTEGER
+  duration_ns: INTEGER
+  created_at: TIMESTAMPTZ
+}
+
+schema_migrations: {
+  shape: sql_table
+  version: INTEGER {constraint: primary_key}
+  name: VARCHAR(200)
+  phase: VARCHAR(20)
+  applied_at: TIMESTAMP
+}
+
+workflow_steps.run_id -> workflow_runs.id: "many steps per run"

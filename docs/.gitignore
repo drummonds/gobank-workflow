@@ -1,5 +1,6 @@
 *.html
 demo/
 release-pipeline.svg
+schema.svg
 app/
 definitions/
