@@ -20,11 +20,16 @@ import (
 // failed: a server created is deleted. The undone stage's step is
 // removed, so the next attempt runs it again. A stage without Undo keeps
 // its step and its work, and the next attempt resumes after it.
+//
+// Final marks a stage whose work must never be redone, such as an archive
+// written: once it has completed, Rewind refuses to go back to it or any
+// stage before it.
 type Stage struct {
 	Name  string
 	Until func(ctx context.Context) (bool, error)
 	Run   func(ctx context.Context) error
 	Undo  func(ctx context.Context) error
+	Final bool
 }
 
 // RunPipeline runs stages in order as one instance of wfType identified by

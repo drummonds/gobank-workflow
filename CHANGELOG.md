@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+- Rewind: an operator sends an instance back to an earlier stage, which and every later stage run again on the next tick; `Stage.Final` refuses a rewind past work that must not be redone (#29)
+
 ## [0.8.0] - 2026-10-17
 
  - sqlstore writes stamps fixed-width, so runs and steps list in time order within a second; schema v5 pads the stamps already written; Docs: a database schema page, a d2 diagram of the tables and their keys and a table of every column, held to the live schema by a test

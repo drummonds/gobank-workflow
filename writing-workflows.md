@@ -15,7 +15,7 @@ compiled and run by `go test`, so it cannot drift from the engine.
 | revision | a workflow's step list as the code had it for an attempt; the same names in the same order are the same revision | `Revision`, recorded on `RunRecord` |
 | instance | one run of a workflow, identified within its type by its key | `RunRecord`; `Key` for keyed workflows, `BusinessDate` for date-keyed |
 | step | one unit recorded against an instance: a stage, or one account's end of day | `StepResult` |
-| stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both, and an `Undo` when its work must not outlive a failed run | `Stage` |
+| stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both, an `Undo` when its work must not outlive a failed run, and `Final` when its work must never be redone | `Stage` |
 | attempt | one call of the runner for an instance; a retry is a new attempt at the same instance, never a new instance | `StartedAt` is the attempt's start |
 
 An instance renders from the revision it recorded, not from the live
@@ -108,6 +108,26 @@ This is what resume demands of a stage:
 - **Undone when it must not outlive a failure.** A stage whose work bills or blocks while the run sits failed has an `Undo` that removes it; the next attempt then makes it again. Its `Undo` is as idempotent as its `Run`: deleting what is already gone is not an error.
 - **Its own record, if it has one.** A workflow with domain figures to keep (a drill's readings, a performance run's rates) keeps them in its own table against the run's id, found through `FindRunByKey`.
 
+## Rewind
+
+An operator can send an instance back to an earlier stage with
+`Runner.Rewind(ctx, type, key, from, stages)`: when a check finds a problem
+that an earlier step must fix. The stage named `from` and every later one
+lose their steps, and the run starts a new attempt; the host's next call to
+`RunPipeline` runs them again, and the stages before `from` are not
+repeated. Rewind does not run anything itself.
+
+| Instance | `from` | Rewind | Next `RunPipeline` |
+|---|---|---|---|
+| waiting, failed or completed | a stage, no `Final` stage completed at or after it | steps from `from` on removed; run running, new attempt | runs from `from` |
+| any | a stage at or before a completed `Final` stage | refused | unchanged |
+| any | not a stage of the pipeline | refused | unchanged |
+| none for the key | — | refused | — |
+
+Mark a stage `Final` when its work must never be redone, such as an
+archive written or money moved. Rewinding after it is allowed. The steps a
+rewind removes are not kept as history yet (#5).
+
 ## What the store records and what the host supplies
 
 The store records runs and steps: `workflow_runs` and `workflow_steps`,
@@ -198,6 +218,7 @@ pattern above: one key, the store read back through `runnertest`.
 - [ ] Each stage is idempotent and reads back what it needs
 - [ ] Waits are `Until` conditions, not sleeps
 - [ ] A stage whose work bills or blocks has an `Undo`
+- [ ] A stage whose work must never be redone is `Final`
 - [ ] `Now` and `Sleep` are injectable with real defaults
 - [ ] A test for the happy path, one for a failure resumed, one per waiting stage, one for a failure undone where a stage has an `Undo`
 - [ ] Domain figures in the workflow's own table against the run id
