@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-21
+
+ - Cancel: an operator ends an instance from the queue — a terminal `cancelled` status, `Store.CancelRun`, and a Cancel button beside View for instances in hand but not running, offered when the host sets `view.Views.Cancel`
+
+### Added
+
+- Cancel: an operator ends an instance from the queue — a terminal `cancelled` status, `Store.CancelRun`, and a Cancel button beside View for instances in hand but not running, offered when the host sets `view.Views.Cancel` (#32)
+
 ## [0.9.0] - 2026-10-21
 
  - Rewind: an operator sends an instance back to an earlier stage, which and every later stage run again on the next tick; `Stage.Final` refuses a rewind past work that must not be redone
