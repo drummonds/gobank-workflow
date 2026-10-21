@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
-
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
