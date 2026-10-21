@@ -196,7 +196,7 @@ func (v *Views) filterForm(b *strings.Builder, q queueFilter) {
 	field("Status")
 	b.WriteString(`<div class="select is-small"><select name="status">`)
 	option("", "in hand, then completed", q.Status)
-	for _, s := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusFailed, wf.StatusCompleted} {
+	for _, s := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusFailed, wf.StatusCompleted, wf.StatusCancelled} {
 		option(string(s), string(s), q.Status)
 	}
 	b.WriteString(`</select></div>` + end)
@@ -266,9 +266,9 @@ func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter
 			if r.Revision.ID != "" {
 				rev = fmt.Sprintf(`<a href="%s"><code>%s</code></a>`, html.EscapeString(v.queueHref(queueFilter{Workflow: string(r.WorkflowType), Revision: r.Revision.ID})), r.Revision.ID)
 			}
-			fmt.Fprintf(b, `<tr><td><strong>%s</strong></td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><a class="button is-small is-link is-light" href="%s">View</a></td></tr>`,
+			fmt.Fprintf(b, `<tr><td><strong>%s</strong></td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><div class="buttons is-flex-wrap-nowrap"><a class="button is-small is-link is-light" href="%s">View</a>%s</div></td></tr>`,
 				html.EscapeString(instanceName(r)), html.EscapeString(v.queueHref(queueFilter{Workflow: string(r.WorkflowType)})), r.WorkflowType, rev, r.BusinessDate,
-				statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID))
+				statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID), v.cancelButton(r))
 		}
 		b.WriteString(`</tbody></table></div>`)
 	}
@@ -287,4 +287,12 @@ func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter
 		}
 		fmt.Fprintf(b, `<ul class="pagination-list"><li><a class="pagination-link is-current" aria-current="page">%d</a></li></ul></nav>`, q.Page)
 	}
+}
+
+// cancelButton is the queue row's Cancel, a POST, when the run can be cancelled.
+func (v *Views) cancelButton(r wf.RunRecord) string {
+	if !v.cancellable(r) {
+		return ""
+	}
+	return fmt.Sprintf(`<form method="post" action="%s/cancel"><button class="button is-small is-danger is-light">Cancel</button></form>`, v.InstanceHref(r.ID))
 }

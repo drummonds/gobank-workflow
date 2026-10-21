@@ -33,7 +33,7 @@ type Stage struct {
 }
 
 // RunPipeline runs stages in order as one instance of wfType identified by
-// key (for a release, the version). A completed key is a no-op. A stage
+// key (for a release, the version). A completed or cancelled key is a no-op. A stage
 // that fails marks its step and the run failed and stops the run; the next
 // call for the same key restarts that instance and resumes from the failed
 // stage, never repeating a completed one. A stage whose Until is false
@@ -51,7 +51,7 @@ func (r *Runner) RunPipeline(ctx context.Context, wfType WorkflowType, key strin
 	if err != nil {
 		return nil, fmt.Errorf("checking existing run: %w", err)
 	}
-	if existing != nil && existing.Status == StatusCompleted {
+	if existing != nil && !existing.Status.InHand() {
 		return nil, nil
 	}
 

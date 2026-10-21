@@ -412,3 +412,11 @@ func TestSchemaHistoryIsFiveVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestCancelled(t *testing.T) {
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storetest.Cancelled(t, store)
+}

@@ -98,7 +98,7 @@ the same way, but it continues the same attempt: nothing is cleared and
 |---|---|---|---|
 | after a failure or a crash (`failed`, `running`, `pending`) | failed, running, pending; the undone ones went when they were undone | `RestartRun`: new attempt, `StartedAt` now, the stages' revision recorded | the first not completed, onwards |
 | while waiting | none | `ResumeRun` once a condition holds, same attempt | the waiting one, onwards |
-| after completion | | | none; the call is a no-op |
+| after completion or cancellation | | | none; the call is a no-op |
 
 This is what resume demands of a stage:
 

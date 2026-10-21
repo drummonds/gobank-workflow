@@ -409,3 +409,41 @@ func TestRunPipelineReportsAnUndoThatFails(t *testing.T) {
 		t.Fatalf("steps after failure = %+v; want create and add kept, days failed", steps)
 	}
 }
+
+// --- Runner: a cancelled instance ------------------------------------------
+
+func TestACancelledInstanceIsNotRunAgain(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	calls := map[string]int{}
+	fail := true
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.June, 2)
+	if _, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.3", d, stagesWithFailure("tag", calls, &fail)); err == nil {
+		t.Fatal("expected the tag stage to fail")
+	}
+	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "v0.1.3")
+	if err := store.CancelRun(ctx, failed.ID); err != nil {
+		t.Fatal(err)
+	}
+	again, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.3", d, stagesWithFailure("tag", calls, &fail))
+	if err != nil || again != nil {
+		t.Fatalf("a cancelled key should be a no-op: %+v, %v", again, err)
+	}
+	if calls["check"] != 1 || calls["tag"] != 1 {
+		t.Fatalf("stages must not re-run for a cancelled key: %v", calls)
+	}
+
+	proc := &failOnceProcessor{}
+	daily := NewRunner(store, proc)
+	if _, err := daily.RunDaily(ctx, d); err == nil {
+		t.Fatal("first attempt should fail")
+	}
+	day, _ := store.FindRun(ctx, WorkflowDailyUpdate, d)
+	if err := store.CancelRun(ctx, day.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rec, err := daily.RunDaily(ctx, d); err != nil || rec != nil || proc.calls != 1 {
+		t.Fatalf("a cancelled date should be a no-op: %+v, %v, %d calls", rec, err, proc.calls)
+	}
+}

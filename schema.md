@@ -15,9 +15,9 @@ One row per workflow instance. An instance is identified by (`workflow_type`, `b
 | `id` | `TEXT` primary key | v1 | the run's id |
 | `workflow_type` | `TEXT` | v1 | the definition this is an instance of |
 | `business_date` | `DATE` | v1 | the business date it processes |
-| `status` | `TEXT` | v1 | `pending`, `running`, `waiting`, `completed` or `failed` |
+| `status` | `TEXT` | v1 | `pending`, `running`, `waiting`, `completed`, `failed` or `cancelled` |
 | `started_at` | `TIMESTAMPTZ` | v1 | when the latest attempt started |
-| `completed_at` | `TIMESTAMPTZ` | v1 | when it completed or failed; null while in hand |
+| `completed_at` | `TIMESTAMPTZ` | v1 | when it completed, failed or was cancelled; null while in hand |
 | `error_message` | `TEXT` | v1 | why it failed; empty otherwise |
 | `created_at` | `TIMESTAMPTZ` | v1 | when the instance was created; `ListRuns` orders by it, newest first |
 | `instance_key` | `VARCHAR(100)` | v2 | distinguishes instances of one type on one date |

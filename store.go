@@ -42,6 +42,11 @@ type Store interface {
 	// FailRun marks a run as failed with an error message.
 	FailRun(ctx context.Context, id string, errMsg string) error
 
+	// CancelRun ends a run cancelled, at the current time, keeping its
+	// error. CompleteRun, FailRun, WaitRun and ResumeRun leave a cancelled
+	// run as it is; RestartRun revives it.
+	CancelRun(ctx context.Context, id string) error
+
 	// RecordStep inserts a step result.
 	RecordStep(ctx context.Context, step *StepResult) error
 
@@ -78,8 +83,8 @@ type RunFilter struct {
 	// KeyContains matches runs whose key contains it, ignoring case.
 	KeyContains string
 	Revision    string // a Revision.ID
-	// InHandFirst lists the runs still in hand, all but completed ones,
-	// before the completed: the work queue's order.
+	// InHandFirst lists the runs still in hand (RunStatus.InHand) before
+	// the completed and cancelled: the work queue's order.
 	InHandFirst bool
 	Offset      int // skip this many, in list order
 	Limit       int // at most this many after the offset; 0 is no limit

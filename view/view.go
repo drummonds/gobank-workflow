@@ -12,6 +12,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/url"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/diagram"
@@ -48,6 +49,9 @@ type Views struct {
 	// the host alone knows about its workflow type. href is the instance's
 	// own link, for paging and the like.
 	Detail func(r *http.Request, run wf.RunRecord, steps []wf.StepResult, href string) template.HTML
+	// Cancel, if set, ends an instance cancelled (wf.Store's CancelRun):
+	// the queue then offers it on every instance in hand but running.
+	Cancel func(ctx context.Context, id string) error
 	// Frame, if set, writes a page inside the host's layout; otherwise the
 	// bare fragment is written.
 	Frame func(w http.ResponseWriter, r *http.Request, p Page)
@@ -69,6 +73,9 @@ func (v *Views) Handler() http.Handler {
 		}
 		v.frame(w, r, Page{Active: "instances", HTML: html})
 	})
+	if v.Cancel != nil {
+		mux.HandleFunc("POST /instances/{id}/cancel", v.cancel)
+	}
 	mux.HandleFunc("GET /instances/{id}/diagram.d2", func(w http.ResponseWriter, r *http.Request) {
 		run, steps, ok := v.instance(r.Context(), r.PathValue("id"))
 		def := v.definition(run.WorkflowType)
@@ -101,6 +108,39 @@ func (v *Views) Handler() http.Handler {
 		_, _ = w.Write(svg)
 	})
 	return mux
+}
+
+// cancel ends the instance and returns to the page the operator was on,
+// or to the queue when that page is not this site's.
+func (v *Views) cancel(w http.ResponseWriter, r *http.Request) {
+	run, err := v.Store.GetRun(r.Context(), r.PathValue("id"))
+	if err != nil || run == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !v.cancellable(*run) {
+		http.Error(w, fmt.Sprintf("a %s instance cannot be cancelled", run.Status), http.StatusConflict)
+		return
+	}
+	if err := v.Cancel(r.Context(), run.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Relative to /…/instances/{id}/cancel, so the browser resolves it
+	// under wherever the views are mounted; http.Redirect would resolve it
+	// against the path with the prefix stripped.
+	back := "../../"
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Host == r.Host {
+		back = ref.String()
+	}
+	w.Header().Set("Location", back)
+	w.WriteHeader(http.StatusSeeOther)
+}
+
+// cancellable reports whether the queue offers to cancel run: the host
+// can, and the run is in hand but not running, since a runner is on it.
+func (v *Views) cancellable(run wf.RunRecord) bool {
+	return v.Cancel != nil && run.Status.InHand() && run.Status != wf.StatusRunning
 }
 
 // InstanceHref is the link to one instance's page.

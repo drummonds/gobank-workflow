@@ -294,3 +294,57 @@ func TimeOrder(t *testing.T, s wf.Store) {
 		t.Errorf("steps: got %v, want %v", gotSteps, want)
 	}
 }
+
+// Cancelled checks CancelRun: the run ends cancelled, the transitions a
+// runner makes leave it so, RestartRun (a rewind) revives it, and
+// InHandFirst lists it with the completed. s must start empty.
+func Cancelled(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t0 := time.Date(2026, time.October, 21, 9, 0, 0, 0, time.UTC)
+	for _, r := range []wf.RunRecord{
+		{ID: "x1", WorkflowType: "ship", Key: "v1", Status: wf.StatusFailed, Error: "tag: boom", CreatedAt: t0},
+		{ID: "x2", WorkflowType: "ship", Key: "v2", Status: wf.StatusCompleted, CreatedAt: t0.Add(time.Hour)},
+		{ID: "x3", WorkflowType: "ship", Key: "v3", Status: wf.StatusWaiting, CreatedAt: t0.Add(2 * time.Hour)},
+	} {
+		r.BusinessDate = wf.BusinessDateFrom(r.CreatedAt)
+		r.StartedAt = r.CreatedAt
+		if err := s.CreateRun(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CancelRun(ctx, "x1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetRun(ctx, "x1")
+	if got.Status != wf.StatusCancelled || got.CompletedAt.IsZero() || got.Error != "tag: boom" {
+		t.Fatalf("CancelRun should end the run cancelled, keeping its error, got %+v", got)
+	}
+	runs, _ := s.ListRuns(ctx, wf.RunFilter{InHandFirst: true})
+	var order []string
+	for _, r := range runs {
+		order = append(order, r.ID)
+	}
+	if want := []string{"x3", "x2", "x1"}; !slices.Equal(order, want) {
+		t.Fatalf("in hand first should list cancelled with completed: got %v, want %v", order, want)
+	}
+	for name, transition := range map[string]func() error{
+		"CompleteRun": func() error { return s.CompleteRun(ctx, "x1") },
+		"FailRun":     func() error { return s.FailRun(ctx, "x1", "late") },
+		"WaitRun":     func() error { return s.WaitRun(ctx, "x1") },
+		"ResumeRun":   func() error { return s.ResumeRun(ctx, "x1") },
+	} {
+		if err := transition(); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.GetRun(ctx, "x1"); got.Status != wf.StatusCancelled || got.Error != "tag: boom" {
+			t.Fatalf("%s should leave a cancelled run as it is, got %+v", name, got)
+		}
+	}
+	if err := s.RestartRun(ctx, "x1", wf.NewRevision([]string{"tag"})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetRun(ctx, "x1"); got.Status != wf.StatusRunning {
+		t.Fatalf("RestartRun should revive a cancelled run, got %+v", got)
+	}
+}

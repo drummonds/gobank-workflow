@@ -374,3 +374,70 @@ func TestADefinitionsQueuePagesOnToTheInstancesPage(t *testing.T) {
 
 // queueDefault is the view's default n.
 const queueDefault = 50
+
+// cancelling is the queue's views with a Cancel hook that records each id.
+func cancelling(s *store, cancelled *[]string) *view.Views {
+	v := views(s)
+	v.Cancel = func(_ context.Context, id string) error {
+		*cancelled = append(*cancelled, id)
+		return nil
+	}
+	return v
+}
+
+func post(v *view.Views, path, referer string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", path, nil)
+	if referer != "" {
+		req.Header.Set("Referer", referer)
+	}
+	http.StripPrefix("/workflows", v.Handler()).ServeHTTP(rec, req)
+	return rec
+}
+
+func TestTheQueueOffersCancelOnlyWhenTheHostDoesAndOnlyForWorkNotRunning(t *testing.T) {
+	if body := serve(t, views(queue()), "/workflows/instances").body; strings.Contains(body, "/cancel") {
+		t.Fatal("no Cancel hook, no cancel button")
+	}
+	var cancelled []string
+	body := serve(t, cancelling(queue(), &cancelled), "/workflows/instances").body
+	mustContain(t, body, `action="/workflows/instances/f/cancel"`, `action="/workflows/instances/w/cancel"`)
+	for _, id := range []string{"eod", "c-new", "c-old"} {
+		if strings.Contains(body, `action="/workflows/instances/`+id+`/cancel"`) {
+			t.Fatalf("%s is running or ended, so it should have no cancel button", id)
+		}
+	}
+	mustContain(t, body, `<option value="cancelled">cancelled</option>`)
+}
+
+func TestCancelEndsAnInstanceAndReturnsToTheQueue(t *testing.T) {
+	var cancelled []string
+	v := cancelling(queue(), &cancelled)
+	rec := post(v, "/workflows/instances/w/cancel", "http://example.com/workflows/instances?status=waiting")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "http://example.com/workflows/instances?status=waiting" {
+		t.Fatalf("cancel should return to the page it came from: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if !slices.Equal(cancelled, []string{"w"}) {
+		t.Fatalf("cancelled %v, want [w]", cancelled)
+	}
+	if rec := post(v, "/workflows/instances/f/cancel", "http://elsewhere.org/"); rec.Header().Get("Location") != "../../" {
+		t.Fatalf("a referer from another site is not followed; back to the queue instead, got %q", rec.Header().Get("Location"))
+	}
+	if rec := post(v, "/workflows/instances/eod/cancel", ""); rec.Code != http.StatusConflict {
+		t.Fatalf("a running instance cannot be cancelled, got %d", rec.Code)
+	}
+	if rec := post(v, "/workflows/instances/nope/cancel", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown instance: %d", rec.Code)
+	}
+	if rec := post(views(queue()), "/workflows/instances/w/cancel", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("no Cancel hook, no cancel route: %d", rec.Code)
+	}
+	if !slices.Equal(cancelled, []string{"w", "f"}) {
+		t.Fatalf("cancelled %v, want [w f]", cancelled)
+	}
+}
+
+func TestACancelledInstanceIsTaggedAsEnded(t *testing.T) {
+	s := &store{runs: []wf.RunRecord{run("x", shipping, "v9", wf.StatusCancelled, t0)}}
+	mustContain(t, serve(t, views(s), "/workflows/instances/x").body, `<span class="tag is-dark">cancelled</span>`)
+}

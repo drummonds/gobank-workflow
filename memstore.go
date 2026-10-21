@@ -116,6 +116,20 @@ func (m *MemStore) RestartRun(ctx context.Context, id string, rev Revision) erro
 	return nil
 }
 
+func (m *MemStore) CancelRun(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			m.runs[i].Status = StatusCancelled
+			m.runs[i].CompletedAt = time.Now()
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *MemStore) WaitRun(ctx context.Context, id string) error {
 	return m.setStatus(id, StatusWaiting)
 }
@@ -130,7 +144,7 @@ func (m *MemStore) setStatus(id string, status RunStatus) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.runs {
-		if m.runs[i].ID == id {
+		if m.runs[i].ID == id && m.runs[i].Status != StatusCancelled {
 			m.runs[i].Status = status
 			m.runs[i].Error = ""
 			return nil
@@ -174,7 +188,7 @@ func (m *MemStore) CompleteRun(ctx context.Context, id string) error {
 	defer m.mu.Unlock()
 
 	for i := range m.runs {
-		if m.runs[i].ID == id {
+		if m.runs[i].ID == id && m.runs[i].Status != StatusCancelled {
 			m.runs[i].Status = StatusCompleted
 			m.runs[i].CompletedAt = time.Now()
 			return nil
@@ -188,7 +202,7 @@ func (m *MemStore) FailRun(ctx context.Context, id string, errMsg string) error 
 	defer m.mu.Unlock()
 
 	for i := range m.runs {
-		if m.runs[i].ID == id {
+		if m.runs[i].ID == id && m.runs[i].Status != StatusCancelled {
 			m.runs[i].Status = StatusFailed
 			m.runs[i].CompletedAt = time.Now()
 			m.runs[i].Error = errMsg
@@ -237,8 +251,8 @@ func (m *MemStore) ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, erro
 	}
 	sort.Slice(sorted, func(i, j int) bool {
 		if f.InHandFirst {
-			if ci, cj := sorted[i].Status == StatusCompleted, sorted[j].Status == StatusCompleted; ci != cj {
-				return cj
+			if hi, hj := sorted[i].Status.InHand(), sorted[j].Status.InHand(); hi != hj {
+				return hi
 			}
 		}
 		return sorted[i].CreatedAt.After(sorted[j].CreatedAt)

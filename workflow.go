@@ -156,7 +156,14 @@ const (
 	StatusWaiting   RunStatus = "waiting" // parked on a stage's condition; a tick re-enters it
 	StatusCompleted RunStatus = "completed"
 	StatusFailed    RunStatus = "failed"
+	StatusCancelled RunStatus = "cancelled" // ended by an operator; only a rewind revives it
 )
+
+// InHand reports whether a run in status s is still work to do: anything
+// but completed or cancelled.
+func (s RunStatus) InHand() bool {
+	return s != StatusCompleted && s != StatusCancelled
+}
 
 // ErrAlreadyCompleted is returned when a completed run already exists
 // for the given (workflow_type, business_date) pair.

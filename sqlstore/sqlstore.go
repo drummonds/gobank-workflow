@@ -154,12 +154,12 @@ func encodeSteps(rev wf.Revision) (string, error) {
 }
 
 func (s *Store) WaitRun(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET status = 'waiting', error_message = '' WHERE id = ?`, id)
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET status = 'waiting', error_message = '' WHERE id = ? AND status <> 'cancelled'`, id)
 	return err
 }
 
 func (s *Store) ResumeRun(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', error_message = '' WHERE id = ?`, id)
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running', error_message = '' WHERE id = ? AND status <> 'cancelled'`, id)
 	return err
 }
 
@@ -184,7 +184,7 @@ func (s *Store) DeleteStep(ctx context.Context, runID, stepName string) error {
 func (s *Store) CompleteRun(ctx context.Context, id string) error {
 	now := time.Now().UTC().Format(stampLayout)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE workflow_runs SET status = 'completed', completed_at = ? WHERE id = ?`,
+		`UPDATE workflow_runs SET status = 'completed', completed_at = ? WHERE id = ? AND status <> 'cancelled'`,
 		now, id)
 	return err
 }
@@ -192,8 +192,16 @@ func (s *Store) CompleteRun(ctx context.Context, id string) error {
 func (s *Store) FailRun(ctx context.Context, id string, errMsg string) error {
 	now := time.Now().UTC().Format(stampLayout)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE workflow_runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?`,
+		`UPDATE workflow_runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ? AND status <> 'cancelled'`,
 		now, errMsg, id)
+	return err
+}
+
+func (s *Store) CancelRun(ctx context.Context, id string) error {
+	now := time.Now().UTC().Format(stampLayout)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE workflow_runs SET status = 'cancelled', completed_at = ? WHERE id = ?`,
+		now, id)
 	return err
 }
 
@@ -243,7 +251,7 @@ func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, e
 	query := `SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs` + where + ` ORDER BY `
 	if f.InHandFirst {
-		query += `CASE WHEN status = 'completed' THEN 1 ELSE 0 END, `
+		query += `CASE WHEN status IN ('completed', 'cancelled') THEN 1 ELSE 0 END, `
 	}
 	query += `created_at DESC`
 	skip := f.Offset

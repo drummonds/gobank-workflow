@@ -23,13 +23,13 @@ func NewRunner(store Store, processor DayProcessor) *Runner {
 var dailyRevision = NewRevision([]string{"end_of_day"})
 
 // RunDaily processes a single business date idempotently.
-// Returns nil, nil if the date has already been completed.
+// Returns nil, nil if the date has already been completed or cancelled.
 func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, error) {
 	existing, err := r.store.FindRun(ctx, WorkflowDailyUpdate, date)
 	if err != nil {
 		return nil, fmt.Errorf("checking existing run: %w", err)
 	}
-	if existing != nil && existing.Status == StatusCompleted {
+	if existing != nil && !existing.Status.InHand() {
 		return nil, nil
 	}
 

@@ -23,6 +23,8 @@ func statusTag(s wf.RunStatus) string {
 		class = "is-success"
 	case wf.StatusFailed:
 		class = "is-danger"
+	case wf.StatusCancelled:
+		class = "is-dark"
 	}
 	return fmt.Sprintf(`<span class="tag %s">%s</span>`, class, s)
 }
@@ -241,7 +243,7 @@ func (v *Views) definitionHTML(ctx context.Context, t wf.WorkflowType) (template
 		errorNote(&b, err)
 	}
 	b.WriteString(`<div class="tags are-medium">`)
-	for _, st := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusCompleted, wf.StatusFailed} {
+	for _, st := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusCompleted, wf.StatusFailed, wf.StatusCancelled} {
 		fmt.Fprintf(&b, `<span class="tag">%s&nbsp;<strong>%d</strong></span>`, st, c[st])
 	}
 	fmt.Fprintf(&b, `<span class="tag is-dark">instances&nbsp;<strong>%d</strong></span></div>`, c.Total())
