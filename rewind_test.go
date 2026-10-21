@@ -141,7 +141,7 @@ func TestRewindRefusals(t *testing.T) {
 	}{
 		{"b1", "check", "final"},
 		{"b1", "bag", "final"},
-		{"b1", "wash", "no step"},
+		{"b1", "wash", "no stage"},
 		{"b2", "scan", "no instance"},
 	}
 	for _, tc := range cases {

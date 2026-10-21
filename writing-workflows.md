@@ -119,7 +119,7 @@ repeated. Rewind does not run anything itself.
 
 | Instance | `from` | Rewind | Next `RunPipeline` |
 |---|---|---|---|
-| waiting, failed or completed | a stage, no `Final` stage completed at or after it | steps from `from` on removed; run running, new attempt | runs from `from` |
+| any, but no runner on it at the moment (a crash's `running` is fine) | a stage, no `Final` stage completed at or after it | steps from `from` on removed; run running, new attempt | runs from `from` |
 | any | a stage at or before a completed `Final` stage | refused | unchanged |
 | any | not a stage of the pipeline | refused | unchanged |
 | none for the key | — | refused | — |

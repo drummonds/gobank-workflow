@@ -9,10 +9,12 @@ import (
 // Rewind sends the instance of wfType identified by key back to the stage
 // named from: that stage's step and every later one are removed and the
 // run starts a new attempt, so the next RunPipeline runs them again and
-// the earlier stages are not repeated. It works on a waiting, failed or
-// completed instance. It refuses when a Final stage at or after from has
-// completed, since that work must not be redone. stages are the pipeline
-// as RunPipeline is given it.
+// the earlier stages are not repeated. It works on an instance in any
+// status, including one left running by a crash, but nothing stops it
+// racing a runner that is working on the instance at the same moment, so
+// rewind only an instance no runner is on. It refuses when a Final stage
+// at or after from has completed, since that work must not be redone.
+// stages are the pipeline as RunPipeline is given it.
 func (r *Runner) Rewind(ctx context.Context, wfType WorkflowType, key, from string, stages []Stage) (*RunRecord, error) {
 	run, err := r.store.FindRunByKey(ctx, wfType, key)
 	if err != nil {
@@ -23,7 +25,7 @@ func (r *Runner) Rewind(ctx context.Context, wfType WorkflowType, key, from stri
 	}
 	at := slices.IndexFunc(stages, func(st Stage) bool { return st.Name == from })
 	if at < 0 {
-		return nil, fmt.Errorf("%s %s: no step %q to rewind to", wfType, key, from)
+		return nil, fmt.Errorf("%s %s: no stage %q to rewind to", wfType, key, from)
 	}
 	steps, err := r.store.ListSteps(ctx, run.ID)
 	if err != nil {
