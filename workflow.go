@@ -18,10 +18,9 @@ import (
 // WorkflowType identifies a kind of workflow.
 type WorkflowType string
 
-const (
-	WorkflowDailyUpdate WorkflowType = "daily_update"
-	WorkflowRelease     WorkflowType = "release"
-)
+// WorkflowDailyUpdate is the type of DailyUpdate, the one workflow this
+// package runs itself (Runner.RunDaily).
+const WorkflowDailyUpdate WorkflowType = "daily_update"
 
 // SchemaVersion is the SQL schema version this code expects. The
 // sqlstore package's migration history must end at it; the memory store
@@ -100,40 +99,11 @@ type Step struct {
 	Source      string
 }
 
-const (
-	srcWorkflow = "https://git.bytestone.uk/hum3/gobank-workflow/src/branch/main/"
-	srcTaskPlus = "https://git.bytestone.uk/hum3/task-plus/src/branch/main/"
-)
-
-// ReleaseStages are the step names of the release pipeline, in order.
-var ReleaseStages = []string{"check", "bump", "changelog", "tag", "push origin", "push mirror", "verify install", "deploy docs"}
-
-// Definitions lists every workflow type the engine knows.
-var Definitions = []Definition{
-	{
-		Type:        WorkflowDailyUpdate,
-		Purpose:     Purpose{"end of day", "Close the bank's books for one business date."},
-		Description: "End-of-day processing for one business date: the DayProcessor runs over every account. A completed date is never re-run.",
-		InstanceKey: "business date",
-		Steps:       []Step{{"end_of_day", "one per account: the DayProcessor accrues the day's interest; the Runner records opening and closing balances", srcWorkflow + "runner.go"}},
-	},
-	{
-		Type:        WorkflowRelease,
-		Purpose:     Purpose{"release", "Ship a new version of the code."},
-		Description: "Ship a new version through the release pipeline. A failed stage stops the release; the next run resumes from that stage.",
-		InstanceKey: "version",
-		Steps: []Step{
-			{"check", "fmt, vet, test", srcTaskPlus + "internal/workflow/workflow.go"},
-			{"bump", "choose the next semantic version", srcTaskPlus + "internal/workflow/gather.go"},
-			{"changelog", "move [Unreleased] under the new version heading", srcTaskPlus + "internal/changelog/changelog.go"},
-			{"tag", "commit and create the annotated git tag", srcTaskPlus + "internal/workflow/execute.go"},
-			{"push origin", "push commit and tag to origin", srcTaskPlus + "internal/git/git.go"},
-			{"push mirror", "push commit and tag to the GitHub mirror", srcTaskPlus + "internal/git/git.go"},
-			{"verify install", "go install the tag from the module proxy", srcTaskPlus + "internal/workflow/execute.go"},
-			{"deploy docs", "build and rsync the docs site", srcTaskPlus + "internal/deploy/rsync.go"},
-		},
-	},
-}
+// Definitions is the registry: every workflow the host program runs. It
+// starts empty; a host appends its own definitions in an init next to the
+// code that runs them, so its pages show only what it runs. gobank
+// registers DailyUpdate; the demo app registers it and a release.
+var Definitions []Definition
 
 // RunCounts is the number of runs of one workflow type in each status.
 type RunCounts map[RunStatus]int

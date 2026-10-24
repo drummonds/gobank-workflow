@@ -13,6 +13,11 @@ import (
 
 const numAccounts = 1000
 
+// The browser demo runs the end of day and nothing else.
+func init() {
+	wf.Definitions = append(wf.Definitions, wf.DailyUpdate)
+}
+
 // DayTiming records how long each day's processing took.
 type DayTiming struct {
 	Date     wf.BusinessDate

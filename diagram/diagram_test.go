@@ -7,16 +7,25 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 )
 
-func release(t *testing.T) wf.Definition {
-	t.Helper()
-	for _, d := range wf.Definitions {
-		if d.Type == wf.WorkflowRelease {
-			return d
-		}
-	}
-	t.Fatal("no release definition")
-	return wf.Definition{}
+// shipping is a release pipeline as a host would declare it.
+var shipping = wf.Definition{
+	Type:        "release",
+	Purpose:     wf.Purpose{Name: "release", Description: "Ship a new version of the code."},
+	Description: "Ship a new version through the release pipeline.",
+	InstanceKey: "version",
+	Steps: []wf.Step{
+		{Name: "check", Description: "fmt, vet, test", Source: "https://example.org/check.go"},
+		{Name: "bump", Description: "choose the next semantic version", Source: "https://example.org/bump.go"},
+		{Name: "changelog", Description: "move [Unreleased] under the new version heading", Source: "https://example.org/changelog.go"},
+		{Name: "tag", Description: "commit and create the annotated git tag", Source: "https://example.org/tag.go"},
+		{Name: "push origin", Description: "push commit and tag to origin", Source: "https://example.org/git.go"},
+		{Name: "push mirror", Description: "push commit and tag to the GitHub mirror", Source: "https://example.org/git.go"},
+		{Name: "verify install", Description: "go install the tag from the module proxy", Source: "https://example.org/install.go"},
+		{Name: "deploy docs", Description: "build and rsync the docs site", Source: "https://example.org/rsync.go"},
+	},
 }
+
+func release(t *testing.T) wf.Definition { return shipping }
 
 func TestDefinitionDrawsEveryStepInOrder(t *testing.T) {
 	src := Definition(release(t))
@@ -36,7 +45,7 @@ func TestDefinitionDrawsEveryStepInOrder(t *testing.T) {
 }
 
 func TestDefinitionWithOneStepHasNoEdges(t *testing.T) {
-	src := Definition(wf.Definitions[0]) // daily_update
+	src := Definition(wf.DailyUpdate)
 	if strings.Contains(src, "->") {
 		t.Fatalf("single step should have no edge:\n%s", src)
 	}
@@ -47,7 +56,7 @@ func TestDefinitionWithOneStepHasNoEdges(t *testing.T) {
 
 func TestInstanceColoursStepsByState(t *testing.T) {
 	def := release(t)
-	run := wf.RunRecord{WorkflowType: wf.WorkflowRelease, Key: "v0.1.3", Status: wf.StatusFailed, Error: "push mirror: boom"}
+	run := wf.RunRecord{WorkflowType: shipping.Type, Key: "v0.1.3", Status: wf.StatusFailed, Error: "push mirror: boom"}
 	steps := []wf.StepResult{
 		{StepName: "check", Status: wf.StatusCompleted, DurationNs: 2_000_000},
 		{StepName: "bump", Status: wf.StatusCompleted},
@@ -89,7 +98,7 @@ func TestIDsAreSafeD2Identifiers(t *testing.T) {
 }
 
 func TestInstanceDrawsTheRevisionItRan(t *testing.T) {
-	run := wf.RunRecord{WorkflowType: wf.WorkflowRelease, Key: "v0.0.9", Status: wf.StatusCompleted,
+	run := wf.RunRecord{WorkflowType: shipping.Type, Key: "v0.0.9", Status: wf.StatusCompleted,
 		Revision: wf.NewRevision([]string{"check", "tag", "publish"})}
 	steps := []wf.StepResult{{StepName: "check", Status: wf.StatusCompleted}, {StepName: "tag", Status: wf.StatusCompleted}, {StepName: "publish", Status: wf.StatusCompleted}}
 	src := Instance(release(t), run, steps)
