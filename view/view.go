@@ -84,7 +84,7 @@ func (v *Views) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprint(w, diagram.Instance(*def, run, latest(steps)))
+		_, _ = fmt.Fprint(w, diagram.Instance(*def, run, latest(steps), v.DefinitionHref))
 	})
 	mux.HandleFunc("GET /definitions", func(w http.ResponseWriter, r *http.Request) {
 		v.frame(w, r, Page{Active: "definitions", HTML: v.definitionsHTML(r.Context())})

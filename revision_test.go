@@ -100,9 +100,9 @@ func TestRunDailyRecordsTheEndOfDayRevision(t *testing.T) {
 }
 
 func TestStepsForARevisionAreDescribedByTheDefinitionWhereTheyStillExist(t *testing.T) {
-	d := Definition{Steps: []Step{{"check", "fmt, vet, test", "https://check"}, {"tag", "annotated tag", "https://tag"}}}
+	d := Definition{Steps: []Step{{Name: "check", Description: "fmt, vet, test", Source: "https://check"}, {Name: "tag", Description: "annotated tag", Source: "https://tag"}}}
 	got := d.StepsFor(NewRevision([]string{"check", "publish"}))
-	want := []Step{{"check", "fmt, vet, test", "https://check"}, {Name: "publish"}}
+	want := []Step{{Name: "check", Description: "fmt, vet, test", Source: "https://check"}, {Name: "publish"}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("StepsFor = %+v, want %+v", got, want)
 	}

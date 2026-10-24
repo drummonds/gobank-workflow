@@ -401,8 +401,8 @@ func TestV5PadsEarlierStamps(t *testing.T) {
 	}
 }
 
-func TestSchemaHistoryIsFiveVersions(t *testing.T) {
-	want := []db.Phase{db.Expand, db.Expand, db.Contract, db.Expand, db.Expand}
+func TestSchemaHistoryIsSixVersions(t *testing.T) {
+	want := []db.Phase{db.Expand, db.Expand, db.Contract, db.Expand, db.Expand, db.Expand}
 	if len(Migrations) != len(want) {
 		t.Fatalf("expected %d migrations, got %+v", len(want), Migrations)
 	}
@@ -419,4 +419,12 @@ func TestCancelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	storetest.Cancelled(t, store)
+}
+
+func TestChildren(t *testing.T) {
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storetest.Children(t, store)
 }

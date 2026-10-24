@@ -351,3 +351,72 @@ func Cancelled(t *testing.T, s wf.Store) {
 		t.Fatalf("RestartRun should revive a cancelled run, got %+v", got)
 	}
 }
+
+// Children checks the parent link: ParentID round-trips, ListRuns by
+// ParentID is a run's direct children, and CountDescendants counts every
+// run under it, at any depth, by status. s must start empty.
+func Children(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t0 := time.Date(2026, time.October, 24, 9, 0, 0, 0, time.UTC)
+	for i, r := range []wf.RunRecord{
+		{ID: "batch", WorkflowType: "batch", Key: "B-1", Status: wf.StatusRunning},
+		{ID: "load1", WorkflowType: "load", Key: "B-1/1", ParentID: "batch", Status: wf.StatusCompleted},
+		{ID: "load2", WorkflowType: "load", Key: "B-1/2", ParentID: "batch", Status: wf.StatusRunning},
+		{ID: "photo1", WorkflowType: "photo", Key: "P-1", ParentID: "load1", Status: wf.StatusCompleted},
+		{ID: "photo2", WorkflowType: "photo", Key: "P-2", ParentID: "load1", Status: wf.StatusFailed},
+		{ID: "other", WorkflowType: "batch", Key: "B-2", Status: wf.StatusRunning},
+	} {
+		r.CreatedAt = t0.Add(time.Duration(i) * time.Minute)
+		r.StartedAt = r.CreatedAt
+		r.BusinessDate = wf.BusinessDateFrom(t0)
+		if err := s.CreateRun(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := s.GetRun(ctx, "load1")
+	if got.ParentID != "batch" {
+		t.Fatalf("ParentID not round-tripped: %+v", got)
+	}
+	ids := func(f wf.RunFilter) []string {
+		runs, err := s.ListRuns(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range runs {
+			out = append(out, r.ID)
+			if r.ParentID != f.ParentID {
+				t.Fatalf("ListRuns(%+v) returned %+v", f, r)
+			}
+		}
+		return out
+	}
+	if got := ids(wf.RunFilter{ParentID: "batch"}); !slices.Equal(got, []string{"load2", "load1"}) {
+		t.Fatalf("children of batch = %v, want the direct children, newest first", got)
+	}
+	if got := ids(wf.RunFilter{ParentID: "batch", Statuses: []wf.RunStatus{wf.StatusRunning}}); !slices.Equal(got, []string{"load2"}) {
+		t.Fatalf("running children of batch = %v", got)
+	}
+	if got := ids(wf.RunFilter{ParentID: "other"}); len(got) != 0 {
+		t.Fatalf("other has no children, got %v", got)
+	}
+	for id, want := range map[string]wf.RunCounts{
+		"batch": {wf.StatusCompleted: 2, wf.StatusRunning: 1, wf.StatusFailed: 1},
+		"load1": {wf.StatusCompleted: 1, wf.StatusFailed: 1},
+		"other": {},
+	} {
+		got, err := s.CountDescendants(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Total() != want.Total() {
+			t.Fatalf("descendants of %s = %v, want %v", id, got, want)
+		}
+		for st, n := range want {
+			if got[st] != n {
+				t.Fatalf("descendants of %s = %v, want %v", id, got, want)
+			}
+		}
+	}
+}

@@ -17,6 +17,8 @@ compiled and run by `go test`, so it cannot drift from the engine.
 | step | one unit recorded against an instance: a stage, or one account's end of day | `StepResult` |
 | stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both, an `Undo` when its work must not outlive a failed run, and `Final` when its work must never be redone | `Stage` |
 | attempt | one call of the runner for an instance; a retry is a new attempt at the same instance, never a new instance | `StartedAt` is the attempt's start |
+| child | an instance started under another, its parent; the parent's children are the instances its sub-process started | `RunRecord.ParentID`; `RunFilter.ParentID` lists them, `Store.CountDescendants` counts them by status at any depth |
+| sub-process step | a step that starts instances of a child definition, one or many, and does not wait for them | `Step.Child`, `Step.Many`; the stage calls `Runner.StartChild` |
 
 An instance renders from the revision it recorded, not from the live
 definition, so it stays right after the code changes: `Definition.StepsFor`
@@ -38,6 +40,7 @@ gobank; the demo app registers that and its own release pipeline.
 | `Description` | what one instance achieves and what a retry does | one or two sentences |
 | `InstanceKey` | what identifies one instance, as prose | "version", "environment@expiry", "business date" |
 | `Steps` | every step the runner will record, in order | `Name` matches the stage's `Name` exactly; `Description` says what it does; `Source` is an `https://` link to the code |
+| `Steps[i].Child`, `Many` | the step is a sub-process: it starts instances of the `Child` definition, one, or `Many` | the child is a definition of its own, with its own page and picture |
 
 Check the registry in the host's tests, as the demo's
 `definitions_test.go` does: every definition has a type, a purpose and a
@@ -132,6 +135,29 @@ Mark a stage `Final` when its work must never be redone, such as an
 archive written or money moved. Rewinding after it is allowed. The steps a
 rewind removes are not kept as history yet (#5).
 
+## Sub-processes
+
+A workflow whose instances have parts with lives of their own — a batch
+of loads, a load of photos — is three definitions, not one long one. The
+parent's sub-process stage starts each child with `Runner.StartChild` and
+returns; the child is a pending instance of its own definition, which the
+host's tick runs by its key like any other. The stage reads back its own
+run id with `FindRunByKey`, as it reads back anything else it needs.
+
+| Sub-process stage's `Run` calls `StartChild` | The child key | `StartChild` | Then |
+|---|---|---|---|
+| for a new child | not in the store | creates it: pending, `ParentID` the parent's, no attempt yet | the tick's `RunPipeline(child type, key, …)` finds it by key and runs it, keeping the parent link |
+| again, after a crash or a retry | in the store, any status | returns it as it is | the tick carries on with it |
+| under a run id the store does not have | — | error | the stage fails |
+
+A sub-process stage never waits for its children: a child whose stage
+waits on its parent's later stage would deadlock against a parent waiting
+on the child. Waiting is a later stage's `Until`, through the existing
+park-and-poll: `CountDescendants` by status when the rule is "every child
+done", or the host's own condition when it is something of the domain,
+such as "every photo receipted". The instance page lists a run's children
+with their status, and a child's page links up to its parent.
+
 ## What the store records and what the host supplies
 
 The store records runs and steps: `workflow_runs` and `workflow_steps`,
@@ -165,11 +191,16 @@ A new store implementation runs `storetest`'s contract checks, as
 
 ## Drawing a workflow
 
-`cmd/defd2` writes one d2 file per definition from the registry, and
-`task docs:d2` renders them: boxes are the steps, each linked to its
-source. `diagram.Instance` draws one instance with its steps coloured by
-state; the demo app serves it at `workflows/instances/<id>/diagram.d2`.
-Nothing is drawn by hand, so the pictures cannot drift from the code.
+`diagram.Definition` writes one d2 file per definition from the registry
+(the demo's `defd2` does, and `task docs:d2` renders them): boxes are the
+steps, each linked to its source. A sub-process step is one collapsed box,
+BPMN's ⊞ on its name, stacked when it starts many, linking to the child
+definition's page; the child's picture is on that page. One picture answers
+one question, so a definition that does not fit across a screen is split:
+the run of steps that overflows becomes a sub-process with its own page.
+`diagram.Instance` draws one instance with its steps coloured by state;
+the demo app serves it at `workflows/instances/<id>/diagram.d2`. Nothing is
+drawn by hand, so the pictures cannot drift from the code.
 
 ## Worked example
 
@@ -223,6 +254,8 @@ pattern above: one key, the store read back through `runnertest`.
 - [ ] Waits are `Until` conditions, not sleeps
 - [ ] A stage whose work bills or blocks has an `Undo`
 - [ ] A stage whose work must never be redone is `Final`
+- [ ] A sub-process stage starts its children with `StartChild` and returns; a later stage's `Until` waits on them
+- [ ] Each definition fits across one screen; a longer run of steps is a sub-process with its own definition and page
 - [ ] `Now` and `Sleep` are injectable with real defaults
 - [ ] A test for the happy path, one for a failure resumed, one per waiting stage, one for a failure undone where a stage has an `Undo`
 - [ ] Domain figures in the workflow's own table against the run id

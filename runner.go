@@ -29,8 +29,8 @@ var DailyUpdate = Definition{
 	Purpose:     Purpose{"end of day", "Close the bank's books for one business date."},
 	Description: "End-of-day processing for one business date: the DayProcessor runs over every account. A completed date is never re-run.",
 	InstanceKey: "business date",
-	Steps: []Step{{"end_of_day", "one per account: the DayProcessor accrues the day's interest; the Runner records opening and closing balances",
-		"https://git.bytestone.uk/hum3/gobank-workflow/src/branch/main/runner.go"}},
+	Steps: []Step{{Name: "end_of_day", Description: "one per account: the DayProcessor accrues the day's interest; the Runner records opening and closing balances",
+		Source: "https://git.bytestone.uk/hum3/gobank-workflow/src/branch/main/runner.go"}},
 }
 
 // RunDaily processes a single business date idempotently.

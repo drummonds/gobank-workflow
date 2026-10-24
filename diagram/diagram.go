@@ -13,19 +13,25 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 )
 
-// Definition draws the steps of a definition in order.
-func Definition(d wf.Definition) string {
+// Href is the link to a definition's page, for a sub-process step's box;
+// nil draws the box with no link.
+type Href func(wf.WorkflowType) string
+
+// Definition draws the steps of a definition in order. A sub-process step
+// is one collapsed box, BPMN's ⊞ marker on its name, stacked when it
+// starts many children, linking to the child definition's page.
+func Definition(d wf.Definition, child Href) string {
 	var b strings.Builder
 	b.WriteString("direction: right\n\n")
 	fmt.Fprintf(&b, "%s: %q {\n", id(string(d.Type)), fmt.Sprintf("%s — one instance per %s", d.Type, d.InstanceKey))
-	writeSteps(&b, d.Steps)
+	writeSteps(&b, d.Steps, child)
 	b.WriteString("}\n")
 	return b.String()
 }
 
 // Instance draws the steps the instance ran, from its revision, each in
 // the state the instance left it: completed, failed, or not run.
-func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
+func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult, child Href) string {
 	byName := map[string]wf.StepResult{}
 	for _, s := range steps {
 		byName[s.StepName] = s
@@ -44,7 +50,7 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
 	}
 	fmt.Fprintf(&b, "%s: %q {\n", id(string(d.Type)), fmt.Sprintf("%s %s — %s", d.Type, name, run.Status))
 	ran := d.StepsFor(run.Revision)
-	writeSteps(&b, ran)
+	writeSteps(&b, ran, child)
 	for _, st := range ran {
 		class := "not_run"
 		if s, ok := byName[st.Name]; ok {
@@ -63,14 +69,25 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult) string {
 	return b.String()
 }
 
-func writeSteps(b *strings.Builder, steps []wf.Step) {
+func writeSteps(b *strings.Builder, steps []wf.Step, child Href) {
 	var ids []string
 	for _, st := range steps {
-		if st.Source != "" {
-			// A clickable node: the step's code.
-			fmt.Fprintf(b, "  %s: %q {link: %q}\n", id(st.Name), st.Name, st.Source)
+		label, link := st.Name, st.Source
+		if st.Child != "" {
+			label += " ⊞"
+			link = ""
+			if child != nil {
+				link = child(st.Child)
+			}
+		}
+		if link != "" {
+			// A clickable node: the step's code, or the child definition.
+			fmt.Fprintf(b, "  %s: %q {link: %q}\n", id(st.Name), label, link)
 		} else {
-			fmt.Fprintf(b, "  %s: %q\n", id(st.Name), st.Name)
+			fmt.Fprintf(b, "  %s: %q\n", id(st.Name), label)
+		}
+		if st.Many {
+			fmt.Fprintf(b, "  %s.style.multiple: true\n", id(st.Name))
 		}
 		ids = append(ids, id(st.Name))
 	}

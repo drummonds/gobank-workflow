@@ -23,7 +23,7 @@ func main() {
 	}
 	for _, d := range wf.Definitions {
 		path := filepath.Join(*out, string(d.Type)+".d2")
-		if err := os.WriteFile(path, []byte(diagram.Definition(d)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(diagram.Definition(d, nil)), 0o644); err != nil {
 			log.Fatal(err)
 		}
 		fmt.Println(path)

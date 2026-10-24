@@ -441,3 +441,40 @@ func TestACancelledInstanceIsTaggedAsEnded(t *testing.T) {
 	s := &store{runs: []wf.RunRecord{run("x", shipping, "v9", wf.StatusCancelled, t0)}}
 	mustContain(t, serve(t, views(s), "/workflows/instances/x").body, `<span class="tag is-dark">cancelled</span>`)
 }
+
+var (
+	batching = wf.Definition{Type: "batch", Purpose: wf.Purpose{Name: "scan", Description: "Scan a batch."}, Description: "One batch of prints.", InstanceKey: "batch id",
+		Steps: []wf.Step{{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Many: true}, {Name: "close"}}}
+	loading = wf.Definition{Type: "load", Purpose: wf.Purpose{Name: "scan", Description: "Scan a batch."}, Description: "One load of the bed.", InstanceKey: "batch id/n",
+		Steps: []wf.Step{{Name: "preview"}, {Name: "photos", Child: "photo"}}}
+)
+
+func TestAnInstanceListsItsChildrenAndLinksUpToItsParent(t *testing.T) {
+	batch := run("b1", batching, "B-1", wf.StatusRunning, t0)
+	first := run("l1", loading, "B-1/1", wf.StatusCompleted, t0.Add(time.Hour))
+	first.ParentID = "b1"
+	second := run("l2", loading, "B-1/2", wf.StatusPending, t0.Add(2*time.Hour))
+	second.ParentID = "b1"
+	second.StartedAt = time.Time{}
+	v := &view.Views{Store: &store{runs: []wf.RunRecord{batch, first, second}}, Definitions: []wf.Definition{batching, loading}, Base: "/workflows/"}
+
+	parent := serve(t, v, "/workflows/instances/b1").body
+	mustContain(t, parent, "Children", `href="/workflows/instances/l1"`, `href="/workflows/instances/l2"`, "B-1/2", "pending")
+	inOrder(t, parent[strings.Index(parent, "Children"):], "B-1/1", "B-1/2") // oldest first: the order they were started
+	if strings.Contains(parent, "Parent") {
+		t.Fatal("a top-level instance has no parent")
+	}
+	child := serve(t, v, "/workflows/instances/l1").body
+	mustContain(t, child, "Parent", `href="/workflows/instances/b1">batch B-1</a>`)
+	if strings.Contains(child, "Children") {
+		t.Fatal("an instance without children has no Children section")
+	}
+}
+
+func TestADefinitionPageNamesTheChildOfASubProcessStep(t *testing.T) {
+	v := &view.Views{Store: &store{}, Definitions: []wf.Definition{batching, loading}, Base: "/workflows/"}
+	body := serve(t, v, "/workflows/definitions/batch").body
+	mustContain(t, body, "loads ⊞", `starts many <a href="/workflows/definitions/load"><code>load</code></a>`)
+	mustContain(t, serve(t, v, "/workflows/definitions/load").body, `starts one <a href="/workflows/definitions/photo"><code>photo</code></a>`)
+	mustContain(t, serve(t, v, "/workflows/definitions").body, "describe → loads ⊞ → close")
+}
