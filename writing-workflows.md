@@ -195,9 +195,11 @@ A new store implementation runs `storetest`'s contract checks, as
 (the demo's `defd2` does, and `task docs:d2` renders them): boxes are the
 steps, each linked to its source. A sub-process step is one collapsed box,
 BPMN's ⊞ on its name, stacked when it starts many, linking to the child
-definition's page; the child's picture is on that page. One picture answers
-one question, so a definition that does not fit across a screen is split:
-the run of steps that overflows becomes a sub-process with its own page.
+definition's page; the child's picture is on that page. More than four
+steps wrap into rows of four, so the picture stays legible across a
+960px page. One picture answers one question, so a definition that does
+not fit across a screen is split: the run of steps that overflows becomes a
+sub-process with its own page.
 `diagram.Instance` draws one instance with its steps coloured by state;
 the demo app serves it at `workflows/instances/<id>/diagram.d2`. Nothing is
 drawn by hand, so the pictures cannot drift from the code.

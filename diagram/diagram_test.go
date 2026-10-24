@@ -136,3 +136,20 @@ func TestDefinitionDrawsASubProcessAsACollapsedBoxLinkingToItsChild(t *testing.T
 		t.Fatalf("an instance draws the sub-process the same way:\n%s", inst)
 	}
 }
+
+// A long step list wraps into rows of four, so a definition stays legible
+// across a 960px page; a short one stays a single row.
+func TestALongStepListWrapsIntoRows(t *testing.T) {
+	long := Definition(shipping, nil)
+	if !strings.Contains(long, "grid-columns: 4") || !strings.Contains(long, "check -> bump -> changelog -> tag -> push_origin -> push_mirror -> verify_install -> deploy_docs") {
+		t.Fatalf("eight steps should wrap into rows and keep their flow:\n%s", long)
+	}
+	short := wf.Definition{Type: "promotion", Steps: []wf.Step{{Name: "build"}, {Name: "approve"}, {Name: "promote"}, {Name: "verify"}}}
+	if src := Definition(short, nil); strings.Contains(src, "grid") {
+		t.Fatalf("four steps fit a row:\n%s", src)
+	}
+	inst := Instance(shipping, wf.RunRecord{WorkflowType: shipping.Type, Key: "v1"}, nil, nil)
+	if !strings.Contains(inst, "grid-columns: 4") {
+		t.Fatalf("an instance of a long definition wraps the same way:\n%s", inst)
+	}
+}

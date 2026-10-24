@@ -69,7 +69,14 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult, child Hr
 	return b.String()
 }
 
+// rowWidth is how many steps fit across a 960px page before the text
+// would draw too small: a longer list wraps into rows of this many.
+const rowWidth = 4
+
 func writeSteps(b *strings.Builder, steps []wf.Step, child Href) {
+	if len(steps) > rowWidth {
+		fmt.Fprintf(b, "  grid-columns: %d\n", rowWidth)
+	}
 	var ids []string
 	for _, st := range steps {
 		label, link := st.Name, st.Source
