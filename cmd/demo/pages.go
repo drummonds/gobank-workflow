@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/gobank-workflow/cmd/demo/definitions"
 )
 
 // money renders minor units with the given exponent, e.g. 1000000,-2 → 10,000.00.
@@ -83,12 +84,12 @@ func (a *App) simulationHTML(ctx context.Context) string {
 	b.WriteString(`</div>`)
 	b.WriteString(`<p>A failed day stays current: the next advance retries the same instance. See <a href="workflows/instances">instances</a>.</p>`)
 
-	rc := counts[wf.WorkflowRelease]
+	rc := counts[definitions.ReleaseType]
 	b.WriteString(`<h2 class="subtitle mt-5">Release pipeline</h2>`)
 	fmt.Fprintf(&b, `<p>Next version to ship: <strong>%s</strong>. %d released, %d failed.</p>`, next, rc[wf.StatusCompleted], rc[wf.StatusFailed])
 	b.WriteString(`<form method="post" action="simulation/release" class="field has-addons">`)
 	b.WriteString(`<div class="control"><div class="select"><select name="fail_stage"><option value="">every stage succeeds</option>`)
-	for _, st := range releaseDefinition().Steps {
+	for _, st := range definitions.Release.Steps {
 		fmt.Fprintf(&b, `<option value="%s">fail at %s</option>`, html.EscapeString(st.Name), html.EscapeString(st.Name))
 	}
 	fmt.Fprintf(&b, `</select></div></div><div class="control"><button class="button is-primary">Ship %s</button></div></form>`, next)

@@ -26,7 +26,10 @@ is its step list, described by the definition where a name still exists.
 
 A definition is the workflow as the registry, the pages and the diagrams
 see it. Declare it next to the code that runs it and append it to
-`Definitions` in an `init`, as gobank-deploy does.
+`Definitions` in an `init`, as gobank-deploy does. The registry starts
+empty, so a host's pages show only the workflows it runs: the library
+declares `DailyUpdate` beside `RunDaily` and leaves registering it to
+gobank; the demo app registers that and its own release pipeline.
 
 | Field | What it is | Rule |
 |---|---|---|
@@ -36,7 +39,8 @@ see it. Declare it next to the code that runs it and append it to
 | `InstanceKey` | what identifies one instance, as prose | "version", "environment@expiry", "business date" |
 | `Steps` | every step the runner will record, in order | `Name` matches the stage's `Name` exactly; `Description` says what it does; `Source` is an `https://` link to the code |
 
-`definition_test.go` checks the registry: every definition has a type and a
+Check the registry in the host's tests, as the demo's
+`definitions_test.go` does: every definition has a type, a purpose and a
 description, every step links to its code. The instance key is the one
 idempotency rule, so choose it from the system under control, not from
 the clock: a demo environment is keyed by its expiry, which the server

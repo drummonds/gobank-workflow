@@ -2,20 +2,34 @@ package workflow
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestEveryWorkflowTypeHasADefinition(t *testing.T) {
-	found := map[WorkflowType]bool{}
-	for _, d := range Definitions {
-		if d.Type == "" || d.Description == "" {
-			t.Fatalf("definition %+v needs a type and a description", d)
-		}
-		found[d.Type] = true
+// The library registers nothing: a host sees only the workflows it runs,
+// so each appends its own definitions to the registry in an init.
+func TestTheRegistryStartsEmpty(t *testing.T) {
+	if len(Definitions) != 0 {
+		t.Fatalf("Definitions should start empty, got %d", len(Definitions))
 	}
-	if !found[WorkflowDailyUpdate] {
-		t.Fatalf("daily_update has no definition")
+}
+
+// DailyUpdate is the end-of-day definition, declared beside RunDaily for
+// the host that runs it (gobank) to register.
+func TestDailyUpdateDescribesEndOfDay(t *testing.T) {
+	d := DailyUpdate
+	if d.Type != WorkflowDailyUpdate || d.Description == "" || d.InstanceKey != "business date" {
+		t.Fatalf("daily update definition = %+v", d)
+	}
+	if d.Purpose.Name != "end of day" || d.Purpose.Description == "" {
+		t.Fatalf("purpose = %+v", d.Purpose)
+	}
+	if len(d.Steps) != 1 || d.Steps[0].Name != dailyRevision.Steps[0] || d.Steps[0].Description == "" {
+		t.Fatalf("steps = %+v, want the one RunDaily records", d.Steps)
+	}
+	if !strings.HasPrefix(d.Steps[0].Source, "https://") {
+		t.Fatalf("step must link to its code, got %q", d.Steps[0].Source)
 	}
 }
 

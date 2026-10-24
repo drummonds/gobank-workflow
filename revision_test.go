@@ -11,7 +11,7 @@ import (
 // --- Purpose: what a workflow achieves -------------------------------------
 
 func TestEveryDefinitionHasAPurpose(t *testing.T) {
-	for _, d := range Definitions {
+	for _, d := range []Definition{DailyUpdate} {
 		if d.Purpose.Name == "" || d.Purpose.Description == "" {
 			t.Fatalf("%s needs a purpose with a name and a description, got %+v", d.Type, d.Purpose)
 		}
@@ -43,7 +43,7 @@ func TestRevisionIdentifiesTheStepList(t *testing.T) {
 }
 
 func TestADefinitionsRevisionIsItsStepNames(t *testing.T) {
-	for _, d := range Definitions {
+	for _, d := range []Definition{DailyUpdate, {Type: "ship", Steps: []Step{{Name: "build"}, {Name: "tag"}}}} {
 		var names []string
 		for _, s := range d.Steps {
 			names = append(names, s.Name)
@@ -60,7 +60,7 @@ func TestRunPipelineRecordsTheRevisionOfItsStages(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemStore()
 	stages := []Stage{{Name: "check"}, {Name: "tag"}}
-	rec, err := NewRunner(store, nil).RunPipeline(ctx, WorkflowRelease, "v1.0.0", NewBusinessDate(2026, time.October, 16), stages)
+	rec, err := NewRunner(store, nil).RunPipeline(ctx, release, "v1.0.0", NewBusinessDate(2026, time.October, 16), stages)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,11 +75,11 @@ func TestARetryUnderChangedCodeCarriesTheNewRevision(t *testing.T) {
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.October, 16)
 	fail := func(context.Context) error { return errors.New("boom") }
-	if _, err := r.RunPipeline(ctx, WorkflowRelease, "v1.0.1", d, []Stage{{Name: "check"}, {Name: "tag", Run: fail}}); err == nil {
+	if _, err := r.RunPipeline(ctx, release, "v1.0.1", d, []Stage{{Name: "check"}, {Name: "tag", Run: fail}}); err == nil {
 		t.Fatal("first attempt should fail")
 	}
 	changed := []Stage{{Name: "check"}, {Name: "changelog"}, {Name: "tag"}}
-	rec, err := r.RunPipeline(ctx, WorkflowRelease, "v1.0.1", d, changed)
+	rec, err := r.RunPipeline(ctx, release, "v1.0.1", d, changed)
 	if err != nil {
 		t.Fatal(err)
 	}
