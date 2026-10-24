@@ -68,6 +68,11 @@ type Store interface {
 	// runs (instances) exist in each status.
 	CountRuns(ctx context.Context) (map[WorkflowType]RunCounts, error)
 
+	// CountDescendants returns how many runs under the run id, its
+	// children and theirs at any depth, are in each status: what a stage
+	// that waits on a sub-process's children reads.
+	CountDescendants(ctx context.Context, id string) (RunCounts, error)
+
 	// LastCompletedDate returns the most recent business date with a
 	// completed run of the given workflow type. Returns zero BusinessDate if none.
 	LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error)
@@ -83,6 +88,8 @@ type RunFilter struct {
 	// KeyContains matches runs whose key contains it, ignoring case.
 	KeyContains string
 	Revision    string // a Revision.ID
+	// ParentID lists the direct children of that run; empty is any run.
+	ParentID string
 	// InHandFirst lists the runs still in hand (RunStatus.InHand) before
 	// the completed and cancelled: the work queue's order.
 	InHandFirst bool

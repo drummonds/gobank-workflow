@@ -11,7 +11,17 @@ var Migrations = []db.Migration{
 	{Version: 3, Name: "drop date-only uniqueness", Phase: db.Contract, SQL: dropDateOnlyIndexSQL},
 	{Version: 4, Name: "run revisions", Phase: db.Expand, SQL: revisionsSQL},
 	{Version: 5, Name: "fixed-width created_at", Phase: db.Expand, SQL: fixedWidthStampsSQL},
+	{Version: 6, Name: "parent run", Phase: db.Expand, SQL: parentRunSQL},
 }
+
+// parentRunSQL (v6, expand) links a child run to the run it was started
+// under, so a sub-process's instances are found from their parent. Runs
+// from before v6, and every top-level run, have none.
+const parentRunSQL = `
+ALTER TABLE workflow_runs ADD COLUMN parent_run_id VARCHAR(100) NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent
+    ON workflow_runs(parent_run_id);
+`
 
 // fixedWidthStampsSQL (v5, expand) pads the created_at stamps written
 // before v5 by time.RFC3339Nano, which drops trailing zeros, to the

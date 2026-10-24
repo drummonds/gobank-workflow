@@ -2,7 +2,7 @@
 
 The tables of a database migrated by `sqlstore.New` to the current schema version. The DDL is in `sqlstore/schema.go`; this page is the readable view of it, and `sqlstore`'s tests fail if a column here is missing, extra or out of order.
 
-![workflow_runs, workflow_steps and schema_migrations, and the key from steps to runs](schema.svg)
+![workflow_runs, workflow_steps and schema_migrations, the key from steps to runs and from a child run to its parent](schema.svg)
 
 Columns are listed in the order the database has them: those added by a later migration come last, with the version that added them. Types are as declared; under pglike (SQLite) every `TIMESTAMPTZ` is stored as text, written fixed-width in UTC (`2006-01-02T15:04:05.000000000Z`) so that text order is time order.
 
@@ -23,8 +23,9 @@ One row per workflow instance. An instance is identified by (`workflow_type`, `b
 | `instance_key` | `VARCHAR(100)` | v2 | distinguishes instances of one type on one date |
 | `revision` | `VARCHAR(16)` | v4 | id of the revision (step list) the latest attempt ran; empty before v4 |
 | `step_names` | `TEXT` | v4 | that revision's step names as a JSON array, so the run renders without the code that ran it |
+| `parent_run_id` | `VARCHAR(100)` → `workflow_runs.id` | v6 | the run this one was started under (`Runner.StartChild`): its parent; empty for a top-level run |
 
-Indexes: unique on (`workflow_type`, `business_date`, `instance_key`); on `created_at`.
+Indexes: unique on (`workflow_type`, `business_date`, `instance_key`); on `created_at`; on `parent_run_id`.
 
 ### `workflow_steps`
 

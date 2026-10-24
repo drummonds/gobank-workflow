@@ -418,3 +418,56 @@ func TestACancelledInstanceIsNotRunAgain(t *testing.T) {
 		t.Fatalf("a cancelled date should be a no-op: %+v, %v, %d calls", rec, err, proc.calls)
 	}
 }
+
+// --- Child runs: a sub-process stage starts them, the tick runs them ------
+
+func TestStartChildRecordsAPendingRunUnderItsParentForTheTickToRun(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.October, 24)
+	// The sub-process stage reads back its own run and starts two loads
+	// under it; it does not wait for them.
+	loads := Stage{Name: "loads", Run: func(ctx context.Context) error {
+		batch, _ := store.FindRunByKey(ctx, "batch", "B-1")
+		for _, key := range []string{"B-1/1", "B-1/2"} {
+			if _, err := r.StartChild(ctx, batch.ID, "load", key, d); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+	batch, err := r.RunPipeline(ctx, "batch", "B-1", d, []Stage{{Name: "describe"}, loads})
+	if err != nil || batch.Status != StatusCompleted {
+		t.Fatalf("the parent should complete without waiting for its children: %+v, %v", batch, err)
+	}
+	children, _ := store.ListRuns(ctx, RunFilter{ParentID: batch.ID})
+	if len(children) != 2 {
+		t.Fatalf("children = %+v, want two", children)
+	}
+	for _, c := range children {
+		if c.WorkflowType != "load" || c.ParentID != batch.ID || c.Status != StatusPending || !c.StartedAt.IsZero() {
+			t.Fatalf("a started child is pending under its parent, not yet attempted: %+v", c)
+		}
+	}
+	// The host's tick runs a child by its key: the same instance, still the parent's.
+	load, err := r.RunPipeline(ctx, "load", "B-1/1", d, []Stage{{Name: "preview"}})
+	if err != nil || load.Status != StatusCompleted || load.ParentID != batch.ID {
+		t.Fatalf("running the child: %+v, %v", load, err)
+	}
+	if load.ID != children[0].ID && load.ID != children[1].ID {
+		t.Fatalf("RunPipeline should run the started child, not make a new one: %s", load.ID)
+	}
+	// Starting it again, as a stage run again would, leaves it as it is.
+	again, err := r.StartChild(ctx, batch.ID, "load", "B-1/1", d)
+	if err != nil || again.ID != load.ID || again.Status != StatusCompleted {
+		t.Fatalf("StartChild on an existing key should return it unchanged: %+v, %v", again, err)
+	}
+	counts, _ := store.CountDescendants(ctx, batch.ID)
+	if counts[StatusCompleted] != 1 || counts[StatusPending] != 1 || counts.Total() != 2 {
+		t.Fatalf("descendants = %v", counts)
+	}
+	if _, err := r.StartChild(ctx, "no-such-run", "load", "B-9/1", d); err == nil {
+		t.Fatal("a child needs a parent that exists")
+	}
+}

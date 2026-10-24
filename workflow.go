@@ -25,7 +25,7 @@ const WorkflowDailyUpdate WorkflowType = "daily_update"
 // SchemaVersion is the SQL schema version this code expects. The
 // sqlstore package's migration history must end at it; the memory store
 // has no schema.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 // Purpose is what a workflow achieves; its workflows are the ways of
 // achieving it. It lives in the registry only: a run's purpose is its
@@ -93,10 +93,17 @@ func NewRevision(steps []string) Revision {
 
 // Step is one named unit of work in a Definition. Source links to the
 // code that performs it.
+//
+// Child, when set, makes it a sub-process step: its stage starts
+// instances of the Child definition under the run (Runner.StartChild),
+// one of them, or Many, and does not wait for them. Waiting is a later
+// step's business.
 type Step struct {
 	Name        string
 	Description string
 	Source      string
+	Child       WorkflowType
+	Many        bool
 }
 
 // Definitions is the registry: every workflow the host program runs. It

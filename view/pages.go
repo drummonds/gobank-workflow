@@ -6,6 +6,7 @@ import (
 	"html"
 	"html/template"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +76,59 @@ func sourceLink(st wf.Step) string {
 	return fmt.Sprintf(`<a href="%s" title="%s">code</a>`, html.EscapeString(st.Source), html.EscapeString(st.Source))
 }
 
+// stepLabel is a step's name, marked ⊞ when it is a sub-process, as the
+// diagrams draw it.
+func stepLabel(st wf.Step) string {
+	if st.Child != "" {
+		return st.Name + " ⊞"
+	}
+	return st.Name
+}
+
+// subProcessNote says what a sub-process step starts, linking to the child
+// definition; empty for a plain step.
+func (v *Views) subProcessNote(st wf.Step) string {
+	if st.Child == "" {
+		return ""
+	}
+	n := "one"
+	if st.Many {
+		n = "many"
+	}
+	return fmt.Sprintf(` <span class="has-text-grey">— starts %s <a href="%s"><code>%s</code></a></span>`, n, v.DefinitionHref(st.Child), html.EscapeString(string(st.Child)))
+}
+
+// parentLink names a run's parent and links up to it; the bare id when
+// the parent is not in the store.
+func (v *Views) parentLink(ctx context.Context, id string) string {
+	parent, err := v.Store.GetRun(ctx, id)
+	if err != nil || parent == nil {
+		return fmt.Sprintf(`<code>%s</code>`, html.EscapeString(id))
+	}
+	return fmt.Sprintf(`<a href="%s">%s %s</a>`, v.InstanceHref(parent.ID), parent.WorkflowType, html.EscapeString(instanceName(*parent)))
+}
+
+// childrenHTML lists the runs started under this one, oldest first: the
+// order they were started. Nothing is written for a run with none.
+func (v *Views) childrenHTML(ctx context.Context, b *strings.Builder, id string) {
+	children, err := v.Store.ListRuns(ctx, wf.RunFilter{ParentID: id})
+	if err != nil {
+		errorNote(b, err)
+		return
+	}
+	if len(children) == 0 {
+		return
+	}
+	slices.Reverse(children)
+	b.WriteString(`<h2 class="subtitle">Children</h2>`)
+	b.WriteString(`<table class="table is-striped is-fullwidth is-narrow"><thead><tr><th>Workflow</th><th>Instance</th><th>Status</th><th>Started</th><th>Took</th></tr></thead><tbody>`)
+	for _, c := range children {
+		fmt.Fprintf(b, `<tr><td><code>%s</code></td><td><a href="%s"><strong>%s</strong></a></td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			c.WorkflowType, v.InstanceHref(c.ID), html.EscapeString(instanceName(c)), statusTag(c.Status), stamp(c.StartedAt), runTook(c))
+	}
+	b.WriteString(`</tbody></table>`)
+}
+
 func (v *Views) diagramHTML(b *strings.Builder, t wf.WorkflowType) {
 	if _, ok := v.diagram(t); !ok {
 		return
@@ -117,6 +171,9 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 		fmt.Fprintf(&b, `<tr><th>Key</th><td>%s</td></tr>`, name)
 	}
 	fmt.Fprintf(&b, `<tr><th>Business date</th><td>%s</td></tr>`, run.BusinessDate)
+	if run.ParentID != "" {
+		b.WriteString(`<tr><th>Parent</th><td>` + v.parentLink(r.Context(), run.ParentID) + `</td></tr>`)
+	}
 	fmt.Fprintf(&b, `<tr><th>Status</th><td>%s</td></tr>`, statusTag(run.Status))
 	fmt.Fprintf(&b, `<tr><th>Started</th><td>%s</td></tr>`, stamp(run.StartedAt))
 	fmt.Fprintf(&b, `<tr><th>Completed</th><td>%s</td></tr>`, stamp(run.CompletedAt))
@@ -165,8 +222,8 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 			if recorded {
 				status, dur, errMsg = statusTag(st.Status), took(time.Duration(st.DurationNs)), st.Error
 			}
-			fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong> <span class="has-text-grey">%s</span> %s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td></tr>`,
-				i+1, html.EscapeString(stage.Name), html.EscapeString(stage.Description), sourceLink(stage), status, dur, html.EscapeString(errMsg))
+			fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong> <span class="has-text-grey">%s</span> %s%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td></tr>`,
+				i+1, html.EscapeString(stepLabel(stage)), html.EscapeString(stage.Description), sourceLink(stage), v.subProcessNote(stage), status, dur, html.EscapeString(errMsg))
 		}
 		b.WriteString(`</tbody></table>`)
 	case def == nil && len(steps) > 0:
@@ -178,6 +235,7 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 		}
 		b.WriteString(`</tbody></table>`)
 	}
+	v.childrenHTML(r.Context(), &b, run.ID)
 	if v.Detail != nil {
 		b.WriteString(string(v.Detail(r, run, steps, v.InstanceHref(run.ID))))
 	}
@@ -204,7 +262,7 @@ func (v *Views) definitionsHTML(ctx context.Context) template.HTML {
 		c := counts[d.Type]
 		var names []string
 		for _, st := range d.Steps {
-			names = append(names, st.Name)
+			names = append(names, stepLabel(st))
 		}
 		purpose := "—"
 		if d.Purpose.Name != "" {
@@ -234,7 +292,7 @@ func (v *Views) definitionHTML(ctx context.Context, t wf.WorkflowType) (template
 	b.WriteString(`<h2 class="subtitle mt-4">Steps</h2>`)
 	b.WriteString(`<table class="table is-narrow is-striped"><thead><tr><th>#</th><th>Step</th><th>Does</th><th>Code</th></tr></thead><tbody>`)
 	for i, st := range def.Steps {
-		fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong></td><td>%s</td><td>%s</td></tr>`, i+1, html.EscapeString(st.Name), html.EscapeString(st.Description), sourceLink(st))
+		fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong></td><td>%s%s</td><td>%s</td></tr>`, i+1, html.EscapeString(stepLabel(st)), html.EscapeString(st.Description), v.subProcessNote(st), sourceLink(st))
 	}
 	b.WriteString(`</tbody></table>`)
 	v.diagramHTML(&b, t)

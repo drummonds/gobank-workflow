@@ -269,7 +269,27 @@ func (f RunFilter) matches(r RunRecord) bool {
 		(len(f.Statuses) == 0 || slices.Contains(f.Statuses, r.Status)) &&
 		!r.CreatedAt.Before(f.Since.Truncate(time.Second)) &&
 		strings.Contains(strings.ToLower(r.Key), strings.ToLower(f.KeyContains)) &&
-		(f.Revision == "" || r.Revision.ID == f.Revision)
+		(f.Revision == "" || r.Revision.ID == f.Revision) &&
+		(f.ParentID == "" || r.ParentID == f.ParentID)
+}
+
+func (m *MemStore) CountDescendants(ctx context.Context, id string) (RunCounts, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	counts := RunCounts{}
+	parents := []string{id}
+	for len(parents) > 0 {
+		var next []string
+		for _, r := range m.runs {
+			if r.ParentID != "" && slices.Contains(parents, r.ParentID) {
+				counts[r.Status]++
+				next = append(next, r.ID)
+			}
+		}
+		parents = next
+	}
+	return counts, nil
 }
 
 func (m *MemStore) LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error) {
