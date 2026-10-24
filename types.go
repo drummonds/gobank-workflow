@@ -62,6 +62,9 @@ type RunRecord struct {
 	// Key identifies the instance within its type when the business date
 	// does not: the version for a release. Empty for date-keyed workflows.
 	Key string
+	// ParentID is the run this one was started under (Runner.StartChild):
+	// its parent. Empty for a top-level run.
+	ParentID string
 	// Revision is the step list the latest attempt ran.
 	Revision    Revision
 	Status      RunStatus

@@ -22,6 +22,17 @@ func NewRunner(store Store, processor DayProcessor) *Runner {
 // dailyRevision is RunDaily's step list: one end_of_day step per account.
 var dailyRevision = NewRevision([]string{"end_of_day"})
 
+// DailyUpdate is the definition of RunDaily's workflow, for the host that
+// runs it to append to Definitions.
+var DailyUpdate = Definition{
+	Type:        WorkflowDailyUpdate,
+	Purpose:     Purpose{"end of day", "Close the bank's books for one business date."},
+	Description: "End-of-day processing for one business date: the DayProcessor runs over every account. A completed date is never re-run.",
+	InstanceKey: "business date",
+	Steps: []Step{{Name: "end_of_day", Description: "one per account: the DayProcessor accrues the day's interest; the Runner records opening and closing balances",
+		Source: "https://git.bytestone.uk/hum3/gobank-workflow/src/branch/main/runner.go"}},
+}
+
 // RunDaily processes a single business date idempotently.
 // Returns nil, nil if the date has already been completed or cancelled.
 func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, error) {

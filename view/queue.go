@@ -171,7 +171,7 @@ func (v *Views) filterForm(b *strings.Builder, q queueFilter) {
 		fmt.Fprintf(b, `<option value="%s"%s>%s</option>`, html.EscapeString(value), sel, html.EscapeString(label))
 	}
 	field := func(label string) {
-		fmt.Fprintf(b, `<div class="field"><label class="label is-small">%s</label><div class="control">`, label)
+		fmt.Fprintf(b, `<div class="field mb-0"><label class="label is-small">%s</label><div class="control">`, label)
 	}
 	end := `</div></div>`
 	fmt.Fprintf(b, `<form method="get" action="%sinstances" class="box"><div class="is-flex is-flex-wrap-wrap is-align-items-flex-end" style="gap:.75rem">`, v.Base)
@@ -209,9 +209,9 @@ func (v *Views) filterForm(b *strings.Builder, q queueFilter) {
 	if q.Revision != "" {
 		fmt.Fprintf(b, `<input type="hidden" name="revision" value="%s">`, html.EscapeString(q.Revision))
 	}
-	b.WriteString(`<div class="field"><div class="control"><button class="button is-small is-link">Filter</button></div></div>`)
+	b.WriteString(`<div class="field mb-0"><div class="control"><button class="button is-small is-link">Filter</button></div></div>`)
 	if q.narrowed() {
-		fmt.Fprintf(b, `<div class="field"><div class="control"><a class="button is-small is-light" href="%sinstances">Clear</a></div></div>`, v.Base)
+		fmt.Fprintf(b, `<div class="field mb-0"><div class="control"><a class="button is-small is-light" href="%sinstances">Clear</a></div></div>`, v.Base)
 	}
 	b.WriteString(`</div>`)
 	if q.Revision != "" {

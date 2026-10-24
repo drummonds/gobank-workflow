@@ -10,6 +10,7 @@ workflow_runs: {
   workflow_type: TEXT {constraint: unique}
   business_date: DATE {constraint: unique}
   instance_key: VARCHAR(100) {constraint: unique}
+  parent_run_id: VARCHAR(100) {constraint: foreign_key}
   status: TEXT
   revision: VARCHAR(16)
   step_names: TEXT
@@ -44,3 +45,4 @@ schema_migrations: {
 }
 
 workflow_steps.run_id -> workflow_runs.id: "many steps per run"
+workflow_runs.parent_run_id -> workflow_runs.id: "a child run's parent"

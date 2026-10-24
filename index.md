@@ -36,7 +36,7 @@ Runner.RunDaily(date)
 
 ## Workflow definitions
 
-Each definition is a kind of workflow the engine can run; each run recorded in the store is an instance of one. `Definitions` is the registry in code, and `Store.CountRuns` reports how many instances each definition has in every state. The daily processing demo shows both.
+Each definition is a kind of workflow the engine can run; each run recorded in the store is an instance of one. `Definitions` is the registry in code: it starts empty and each host program appends the workflows it runs, so its pages show those and no others. `Store.CountRuns` reports how many instances each definition has in every state. The demo app registers these two:
 
 | Type | Description | Instance key | Steps |
 |---|---|---|---|

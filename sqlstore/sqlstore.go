@@ -68,6 +68,33 @@ func (s *Store) CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts
 	return counts, rows.Err()
 }
 
+// CountDescendants walks the parent links down from id with a recursive
+// query and counts what it finds by status.
+func (s *Store) CountDescendants(ctx context.Context, id string) (wf.RunCounts, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`WITH RECURSIVE tree(id) AS (
+		     SELECT id FROM workflow_runs WHERE parent_run_id = ?
+		     UNION ALL
+		     SELECT r.id FROM workflow_runs r JOIN tree ON r.parent_run_id = tree.id
+		 )
+		 SELECT status, COUNT(*) FROM workflow_runs WHERE id IN (SELECT id FROM tree) GROUP BY status`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := wf.RunCounts{}
+	for rows.Next() {
+		var status string
+		var n int
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, err
+		}
+		counts[wf.RunStatus(status)] = n
+	}
+	return counts, rows.Err()
+}
+
 var _ wf.Store = (*Store)(nil)
 
 func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
@@ -102,9 +129,9 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO workflow_runs (id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, error_message, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		run.ID, string(run.WorkflowType), run.BusinessDate.String(), run.Key, run.Revision.ID, stepNames,
+		`INSERT INTO workflow_runs (id, workflow_type, business_date, instance_key, parent_run_id, revision, step_names, status, started_at, error_message, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, string(run.WorkflowType), run.BusinessDate.String(), run.Key, run.ParentID, run.Revision.ID, stepNames,
 		string(run.Status), run.StartedAt.UTC().Format(stampLayout),
 		run.Error, run.CreatedAt.UTC().Format(stampLayout),
 	)
@@ -113,20 +140,20 @@ func (s *Store) CreateRun(ctx context.Context, run *wf.RunRecord) error {
 
 func (s *Store) GetRun(ctx context.Context, id string) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, parent_run_id, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs WHERE id = ?`, id)
 }
 
 func (s *Store) FindRun(ctx context.Context, wfType wf.WorkflowType, date wf.BusinessDate) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, parent_run_id, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs WHERE workflow_type = ? AND business_date = ? AND instance_key = ''`,
 		string(wfType), date.String())
 }
 
 func (s *Store) FindRunByKey(ctx context.Context, wfType wf.WorkflowType, key string) (*wf.RunRecord, error) {
 	return s.scanRun(ctx,
-		`SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
+		`SELECT id, workflow_type, business_date, instance_key, parent_run_id, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs WHERE workflow_type = ? AND instance_key = ?`,
 		string(wfType), key)
 }
@@ -248,7 +275,7 @@ func (s *Store) ListSteps(ctx context.Context, runID string) ([]wf.StepResult, e
 
 func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error) {
 	where, args := runFilterSQL(f)
-	query := `SELECT id, workflow_type, business_date, instance_key, revision, step_names, status, started_at, completed_at, error_message, created_at
+	query := `SELECT id, workflow_type, business_date, instance_key, parent_run_id, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs` + where + ` ORDER BY `
 	if f.InHandFirst {
 		query += `CASE WHEN status IN ('completed', 'cancelled') THEN 1 ELSE 0 END, `
@@ -321,6 +348,10 @@ func runFilterSQL(f wf.RunFilter) (string, []any) {
 		conds = append(conds, `revision = ?`)
 		args = append(args, f.Revision)
 	}
+	if f.ParentID != "" {
+		conds = append(conds, `parent_run_id = ?`)
+		args = append(args, f.ParentID)
+	}
 	if len(conds) == 0 {
 		return "", nil
 	}
@@ -366,7 +397,7 @@ func scanRunFromRow(row scannable) (*wf.RunRecord, error) {
 	var createdAt string
 	var errMsg, stepNames string
 
-	err := row.Scan(&r.ID, &wfType, &dateStr, &r.Key, &r.Revision.ID, &stepNames, &status, &startedAt, &completedAt, &errMsg, &createdAt)
+	err := row.Scan(&r.ID, &wfType, &dateStr, &r.Key, &r.ParentID, &r.Revision.ID, &stepNames, &status, &startedAt, &completedAt, &errMsg, &createdAt)
 	if err != nil {
 		return nil, err
 	}

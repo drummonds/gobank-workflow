@@ -8,37 +8,8 @@ import (
 	"time"
 )
 
-// --- Definitions describe their steps -------------------------------------
-
-func TestDefinitionsDescribeTheirSteps(t *testing.T) {
-	byType := map[WorkflowType]Definition{}
-	for _, d := range Definitions {
-		byType[d.Type] = d
-	}
-	daily := byType[WorkflowDailyUpdate]
-	if len(daily.Steps) != 1 || daily.Steps[0].Name != "end_of_day" {
-		t.Fatalf("daily_update steps = %+v", daily.Steps)
-	}
-	rel, ok := byType[WorkflowRelease]
-	if !ok {
-		t.Fatal("release definition missing")
-	}
-	if len(rel.Steps) != len(ReleaseStages) {
-		t.Fatalf("release definition has %d steps, want %d", len(rel.Steps), len(ReleaseStages))
-	}
-	for i, s := range rel.Steps {
-		if s.Name == "" || s.Description == "" || s.Name != ReleaseStages[i] {
-			t.Fatalf("release step %d = %+v", i, s)
-		}
-	}
-	for _, d := range Definitions {
-		for _, s := range d.Steps {
-			if !strings.HasPrefix(s.Source, "https://") {
-				t.Fatalf("%s step %s must link to its code, got %q", d.Type, s.Name, s.Source)
-			}
-		}
-	}
-}
+// release is the arbitrary pipeline type the tests run.
+const release WorkflowType = "release"
 
 // --- Runner: retry keeps the instance -------------------------------------
 
@@ -104,11 +75,11 @@ func TestRunPipelineRecordsEveryStage(t *testing.T) {
 	store := NewMemStore()
 	calls := map[string]int{}
 	fail := false
-	rec, err := NewRunner(store, nil).RunPipeline(ctx, WorkflowRelease, "v0.1.3", NewBusinessDate(2026, time.June, 2), stagesWithFailure("", calls, &fail))
+	rec, err := NewRunner(store, nil).RunPipeline(ctx, release, "v0.1.3", NewBusinessDate(2026, time.June, 2), stagesWithFailure("", calls, &fail))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.Status != StatusCompleted || rec.Key != "v0.1.3" || rec.WorkflowType != WorkflowRelease {
+	if rec.Status != StatusCompleted || rec.Key != "v0.1.3" || rec.WorkflowType != release {
 		t.Fatalf("run = %+v", rec)
 	}
 	steps, _ := store.ListSteps(ctx, rec.ID)
@@ -121,7 +92,7 @@ func TestRunPipelineRecordsEveryStage(t *testing.T) {
 		}
 	}
 	// A completed key is a no-op afterwards.
-	again, err := NewRunner(store, nil).RunPipeline(ctx, WorkflowRelease, "v0.1.3", NewBusinessDate(2026, time.June, 3), stagesWithFailure("", calls, &fail))
+	again, err := NewRunner(store, nil).RunPipeline(ctx, release, "v0.1.3", NewBusinessDate(2026, time.June, 3), stagesWithFailure("", calls, &fail))
 	if err != nil || again != nil {
 		t.Fatalf("second run of a completed key: %+v, %v", again, err)
 	}
@@ -137,11 +108,11 @@ func TestRunPipelineStopsAtFailureAndResumesFromIt(t *testing.T) {
 	fail := true
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.June, 2)
-	_, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.3", d, stagesWithFailure("tag", calls, &fail))
+	_, err := r.RunPipeline(ctx, release, "v0.1.3", d, stagesWithFailure("tag", calls, &fail))
 	if err == nil {
 		t.Fatal("expected the tag stage to fail")
 	}
-	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "v0.1.3")
+	failed, _ := store.FindRunByKey(ctx, release, "v0.1.3")
 	if failed == nil || failed.Status != StatusFailed || failed.Error == "" {
 		t.Fatalf("expected a failed instance with an error, got %+v", failed)
 	}
@@ -153,7 +124,7 @@ func TestRunPipelineStopsAtFailureAndResumesFromIt(t *testing.T) {
 		t.Fatal("stages after the failure must not run")
 	}
 
-	rec, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.3", d, stagesWithFailure("tag", calls, &fail))
+	rec, err := r.RunPipeline(ctx, release, "v0.1.3", d, stagesWithFailure("tag", calls, &fail))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +155,7 @@ func TestRunPipelineWaitsOnAConditionUntilItHolds(t *testing.T) {
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.June, 2)
 
-	rec, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.4", d, stages)
+	rec, err := r.RunPipeline(ctx, release, "v0.1.4", d, stages)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +173,7 @@ func TestRunPipelineWaitsOnAConditionUntilItHolds(t *testing.T) {
 	startedAt := rec.StartedAt
 
 	// A tick while the condition still fails: same instance, same attempt, no new step.
-	again, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.4", d, stages)
+	again, err := r.RunPipeline(ctx, release, "v0.1.4", d, stages)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +189,7 @@ func TestRunPipelineWaitsOnAConditionUntilItHolds(t *testing.T) {
 	}
 
 	approved = true
-	done, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.4", d, stages)
+	done, err := r.RunPipeline(ctx, release, "v0.1.4", d, stages)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,11 +221,11 @@ func TestRunPipelineConditionGatesTheStagesRun(t *testing.T) {
 	}}
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.June, 2)
-	if rec, err := r.RunPipeline(ctx, WorkflowRelease, "v1", d, stages); err != nil || rec.Status != StatusWaiting || ran != 0 {
+	if rec, err := r.RunPipeline(ctx, release, "v1", d, stages); err != nil || rec.Status != StatusWaiting || ran != 0 {
 		t.Fatalf("Run must not execute before the condition holds: %+v, %v, ran %d", rec, err, ran)
 	}
 	ready = true
-	if rec, err := r.RunPipeline(ctx, WorkflowRelease, "v1", d, stages); err != nil || rec.Status != StatusCompleted || ran != 1 {
+	if rec, err := r.RunPipeline(ctx, release, "v1", d, stages); err != nil || rec.Status != StatusCompleted || ran != 1 {
 		t.Fatalf("Run should execute once the condition holds: %+v, %v, ran %d", rec, err, ran)
 	}
 }
@@ -263,11 +234,11 @@ func TestRunPipelineConditionErrorFailsTheStage(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemStore()
 	stages := []Stage{{Name: "approve", Until: func(context.Context) (bool, error) { return false, errors.New("approvals down") }}}
-	_, err := NewRunner(store, nil).RunPipeline(ctx, WorkflowRelease, "v1", NewBusinessDate(2026, time.June, 2), stages)
+	_, err := NewRunner(store, nil).RunPipeline(ctx, release, "v1", NewBusinessDate(2026, time.June, 2), stages)
 	if err == nil || !strings.Contains(err.Error(), "approvals down") {
 		t.Fatalf("a condition error should fail the run, got %v", err)
 	}
-	run, _ := store.FindRunByKey(ctx, WorkflowRelease, "v1")
+	run, _ := store.FindRunByKey(ctx, release, "v1")
 	if run == nil || run.Status != StatusFailed {
 		t.Fatalf("run = %+v", run)
 	}
@@ -320,14 +291,14 @@ func TestRunPipelineUndoesCompletedStagesOnFailure(t *testing.T) {
 	var undone []string
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.October, 15)
-	_, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, undoStages(calls, &undone, &fail, nil))
+	_, err := r.RunPipeline(ctx, release, "perf large", d, undoStages(calls, &undone, &fail, nil))
 	if err == nil || !strings.Contains(err.Error(), "days: the demo stopped answering") || !strings.Contains(err.Error(), "undone: add, create") {
 		t.Fatalf("err = %v; want the failure and what was undone", err)
 	}
 	if strings.Join(undone, " ") != "add create" {
 		t.Errorf("undone = %v; want the completed stages in reverse", undone)
 	}
-	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "perf large")
+	failed, _ := store.FindRunByKey(ctx, release, "perf large")
 	if failed == nil || failed.Status != StatusFailed || !strings.Contains(failed.Error, "undone: add, create") {
 		t.Fatalf("run = %+v; want failed, saying what was undone", failed)
 	}
@@ -339,7 +310,7 @@ func TestRunPipelineUndoesCompletedStagesOnFailure(t *testing.T) {
 		t.Error("stages after the failure must not run")
 	}
 
-	rec, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, undoStages(calls, &undone, &fail, nil))
+	rec, err := r.RunPipeline(ctx, release, "perf large", d, undoStages(calls, &undone, &fail, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,18 +338,18 @@ func TestRunPipelineKeepsStagesWithoutUndo(t *testing.T) {
 	stages[0].Undo = nil // create is kept
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.October, 15)
-	_, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, stages)
+	_, err := r.RunPipeline(ctx, release, "perf large", d, stages)
 	if err == nil || !strings.Contains(err.Error(), "undone: add") || strings.Contains(err.Error(), "create") {
 		t.Fatalf("err = %v; want add undone and create not mentioned", err)
 	}
-	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "perf large")
+	failed, _ := store.FindRunByKey(ctx, release, "perf large")
 	steps, _ := store.ListSteps(ctx, failed.ID)
 	if len(steps) != 2 || steps[0].StepName != "create" || steps[0].Status != StatusCompleted || steps[1].StepName != "days" {
 		t.Fatalf("steps after failure = %+v; want create kept and days failed", steps)
 	}
 	stages = undoStages(calls, &undone, &fail, nil)
 	stages[0].Undo = nil
-	if _, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, stages); err != nil {
+	if _, err := r.RunPipeline(ctx, release, "perf large", d, stages); err != nil {
 		t.Fatal(err)
 	}
 	if calls["create"] != 1 || calls["add"] != 2 {
@@ -396,14 +367,14 @@ func TestRunPipelineReportsAnUndoThatFails(t *testing.T) {
 	var undone []string
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.October, 15)
-	_, err := r.RunPipeline(ctx, WorkflowRelease, "perf large", d, undoStages(calls, &undone, &fail, errors.New("delete server: forbidden")))
+	_, err := r.RunPipeline(ctx, release, "perf large", d, undoStages(calls, &undone, &fail, errors.New("delete server: forbidden")))
 	if err == nil || !strings.Contains(err.Error(), "days: the demo stopped answering") || !strings.Contains(err.Error(), "undo add: delete server: forbidden") {
 		t.Fatalf("err = %v; want the failure and the undo's error", err)
 	}
 	if strings.Join(undone, " ") != "add" {
 		t.Errorf("undone = %v; want the undoing stopped at the one that failed", undone)
 	}
-	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "perf large")
+	failed, _ := store.FindRunByKey(ctx, release, "perf large")
 	steps, _ := store.ListSteps(ctx, failed.ID)
 	if len(steps) != 3 || steps[0].StepName != "create" || steps[1].StepName != "add" || steps[1].Status != StatusCompleted || steps[2].Status != StatusFailed {
 		t.Fatalf("steps after failure = %+v; want create and add kept, days failed", steps)
@@ -419,14 +390,14 @@ func TestACancelledInstanceIsNotRunAgain(t *testing.T) {
 	fail := true
 	r := NewRunner(store, nil)
 	d := NewBusinessDate(2026, time.June, 2)
-	if _, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.3", d, stagesWithFailure("tag", calls, &fail)); err == nil {
+	if _, err := r.RunPipeline(ctx, release, "v0.1.3", d, stagesWithFailure("tag", calls, &fail)); err == nil {
 		t.Fatal("expected the tag stage to fail")
 	}
-	failed, _ := store.FindRunByKey(ctx, WorkflowRelease, "v0.1.3")
+	failed, _ := store.FindRunByKey(ctx, release, "v0.1.3")
 	if err := store.CancelRun(ctx, failed.ID); err != nil {
 		t.Fatal(err)
 	}
-	again, err := r.RunPipeline(ctx, WorkflowRelease, "v0.1.3", d, stagesWithFailure("tag", calls, &fail))
+	again, err := r.RunPipeline(ctx, release, "v0.1.3", d, stagesWithFailure("tag", calls, &fail))
 	if err != nil || again != nil {
 		t.Fatalf("a cancelled key should be a no-op: %+v, %v", again, err)
 	}
@@ -445,5 +416,58 @@ func TestACancelledInstanceIsNotRunAgain(t *testing.T) {
 	}
 	if rec, err := daily.RunDaily(ctx, d); err != nil || rec != nil || proc.calls != 1 {
 		t.Fatalf("a cancelled date should be a no-op: %+v, %v, %d calls", rec, err, proc.calls)
+	}
+}
+
+// --- Child runs: a sub-process stage starts them, the tick runs them ------
+
+func TestStartChildRecordsAPendingRunUnderItsParentForTheTickToRun(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	r := NewRunner(store, nil)
+	d := NewBusinessDate(2026, time.October, 24)
+	// The sub-process stage reads back its own run and starts two loads
+	// under it; it does not wait for them.
+	loads := Stage{Name: "loads", Run: func(ctx context.Context) error {
+		batch, _ := store.FindRunByKey(ctx, "batch", "B-1")
+		for _, key := range []string{"B-1/1", "B-1/2"} {
+			if _, err := r.StartChild(ctx, batch.ID, "load", key, d); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+	batch, err := r.RunPipeline(ctx, "batch", "B-1", d, []Stage{{Name: "describe"}, loads})
+	if err != nil || batch.Status != StatusCompleted {
+		t.Fatalf("the parent should complete without waiting for its children: %+v, %v", batch, err)
+	}
+	children, _ := store.ListRuns(ctx, RunFilter{ParentID: batch.ID})
+	if len(children) != 2 {
+		t.Fatalf("children = %+v, want two", children)
+	}
+	for _, c := range children {
+		if c.WorkflowType != "load" || c.ParentID != batch.ID || c.Status != StatusPending || !c.StartedAt.IsZero() {
+			t.Fatalf("a started child is pending under its parent, not yet attempted: %+v", c)
+		}
+	}
+	// The host's tick runs a child by its key: the same instance, still the parent's.
+	load, err := r.RunPipeline(ctx, "load", "B-1/1", d, []Stage{{Name: "preview"}})
+	if err != nil || load.Status != StatusCompleted || load.ParentID != batch.ID {
+		t.Fatalf("running the child: %+v, %v", load, err)
+	}
+	if load.ID != children[0].ID && load.ID != children[1].ID {
+		t.Fatalf("RunPipeline should run the started child, not make a new one: %s", load.ID)
+	}
+	// Starting it again, as a stage run again would, leaves it as it is.
+	again, err := r.StartChild(ctx, batch.ID, "load", "B-1/1", d)
+	if err != nil || again.ID != load.ID || again.Status != StatusCompleted {
+		t.Fatalf("StartChild on an existing key should return it unchanged: %+v, %v", again, err)
+	}
+	counts, _ := store.CountDescendants(ctx, batch.ID)
+	if counts[StatusCompleted] != 1 || counts[StatusPending] != 1 || counts.Total() != 2 {
+		t.Fatalf("descendants = %v", counts)
+	}
+	if _, err := r.StartChild(ctx, "no-such-run", "load", "B-9/1", d); err == nil {
+		t.Fatal("a child needs a parent that exists")
 	}
 }

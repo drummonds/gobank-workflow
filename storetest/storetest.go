@@ -12,31 +12,34 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 )
 
+// release is the arbitrary keyed type the checks run.
+const release wf.WorkflowType = "release"
+
 // KeyedInstances checks instance keys: several keyed runs may share a
 // business date, FindRunByKey finds them, and a completed key is final.
 func KeyedInstances(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
 	d := wf.NewBusinessDate(2026, time.May, 1)
-	a := &wf.RunRecord{ID: "rel-a", WorkflowType: wf.WorkflowRelease, BusinessDate: d, Key: "v0.1.3", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
-	b := &wf.RunRecord{ID: "rel-b", WorkflowType: wf.WorkflowRelease, BusinessDate: d, Key: "v0.1.4", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	a := &wf.RunRecord{ID: "rel-a", WorkflowType: release, BusinessDate: d, Key: "v0.1.3", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	b := &wf.RunRecord{ID: "rel-b", WorkflowType: release, BusinessDate: d, Key: "v0.1.4", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
 	if err := s.CreateRun(ctx, a); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateRun(ctx, b); err != nil {
 		t.Fatalf("two releases on one date must both be accepted: %v", err)
 	}
-	got, err := s.FindRunByKey(ctx, wf.WorkflowRelease, "v0.1.4")
+	got, err := s.FindRunByKey(ctx, release, "v0.1.4")
 	if err != nil || got == nil || got.ID != "rel-b" || got.Key != "v0.1.4" {
 		t.Fatalf("FindRunByKey = %+v, %v", got, err)
 	}
-	if got, _ := s.FindRunByKey(ctx, wf.WorkflowRelease, "v9.9.9"); got != nil {
+	if got, _ := s.FindRunByKey(ctx, release, "v9.9.9"); got != nil {
 		t.Fatalf("unknown key should be nil, got %+v", got)
 	}
 	if err := s.CompleteRun(ctx, "rel-a"); err != nil {
 		t.Fatal(err)
 	}
-	again := &wf.RunRecord{ID: "rel-a2", WorkflowType: wf.WorkflowRelease, BusinessDate: d, Key: "v0.1.3", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	again := &wf.RunRecord{ID: "rel-a2", WorkflowType: release, BusinessDate: d, Key: "v0.1.3", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
 	if err := s.CreateRun(ctx, again); !errors.Is(err, wf.ErrAlreadyCompleted) {
 		t.Fatalf("a completed key is final, got %v", err)
 	}
@@ -48,7 +51,7 @@ func RestartAndStepStatus(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
 	d := wf.NewBusinessDate(2026, time.May, 2)
-	run := &wf.RunRecord{ID: "r1", WorkflowType: wf.WorkflowRelease, BusinessDate: d, Key: "v1", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	run := &wf.RunRecord{ID: "r1", WorkflowType: release, BusinessDate: d, Key: "v1", Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
 	if err := s.CreateRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +100,7 @@ func UndoneStep(t *testing.T, s wf.Store) {
 	ctx := context.Background()
 	d := wf.NewBusinessDate(2026, time.October, 15)
 	for _, id := range []string{"u1", "u2"} {
-		run := &wf.RunRecord{ID: id, WorkflowType: wf.WorkflowRelease, BusinessDate: d, Key: id, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+		run := &wf.RunRecord{ID: id, WorkflowType: release, BusinessDate: d, Key: id, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
 		if err := s.CreateRun(ctx, run); err != nil {
 			t.Fatal(err)
 		}
@@ -125,7 +128,7 @@ func WaitAndResume(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
 	started := time.Date(2026, time.May, 3, 9, 0, 0, 0, time.UTC)
-	run := &wf.RunRecord{ID: "w1", WorkflowType: wf.WorkflowRelease, BusinessDate: wf.NewBusinessDate(2026, time.May, 3), Key: "v2", Status: wf.StatusRunning, StartedAt: started, CreatedAt: started}
+	run := &wf.RunRecord{ID: "w1", WorkflowType: release, BusinessDate: wf.NewBusinessDate(2026, time.May, 3), Key: "v2", Status: wf.StatusRunning, StartedAt: started, CreatedAt: started}
 	if err := s.CreateRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +140,7 @@ func WaitAndResume(t *testing.T, s wf.Store) {
 		t.Fatalf("WaitRun should park the run, got %+v", got)
 	}
 	counts, _ := s.CountRuns(ctx)
-	if counts[wf.WorkflowRelease][wf.StatusWaiting] != 1 {
+	if counts[release][wf.StatusWaiting] != 1 {
 		t.Fatalf("waiting runs should be counted, got %+v", counts)
 	}
 	if err := s.ResumeRun(ctx, "w1"); err != nil {
@@ -155,7 +158,7 @@ func Revisions(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
 	first := wf.NewRevision([]string{"check", "push origin", "tag"})
-	run := &wf.RunRecord{ID: "rev1", WorkflowType: wf.WorkflowRelease, BusinessDate: wf.NewBusinessDate(2026, time.October, 16), Key: "v3", Revision: first, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
+	run := &wf.RunRecord{ID: "rev1", WorkflowType: release, BusinessDate: wf.NewBusinessDate(2026, time.October, 16), Key: "v3", Revision: first, Status: wf.StatusRunning, StartedAt: time.Now(), CreatedAt: time.Now()}
 	if err := s.CreateRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +170,7 @@ func Revisions(t *testing.T, s wf.Store) {
 	}
 	got, _ := s.GetRun(ctx, "rev1")
 	same("GetRun", got.Revision, first)
-	got, _ = s.FindRunByKey(ctx, wf.WorkflowRelease, "v3")
+	got, _ = s.FindRunByKey(ctx, release, "v3")
 	same("FindRunByKey", got.Revision, first)
 	runs, _ := s.ListRuns(ctx, wf.RunFilter{Limit: 10})
 	for _, r := range runs {
@@ -346,5 +349,74 @@ func Cancelled(t *testing.T, s wf.Store) {
 	}
 	if got, _ := s.GetRun(ctx, "x1"); got.Status != wf.StatusRunning {
 		t.Fatalf("RestartRun should revive a cancelled run, got %+v", got)
+	}
+}
+
+// Children checks the parent link: ParentID round-trips, ListRuns by
+// ParentID is a run's direct children, and CountDescendants counts every
+// run under it, at any depth, by status. s must start empty.
+func Children(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t0 := time.Date(2026, time.October, 24, 9, 0, 0, 0, time.UTC)
+	for i, r := range []wf.RunRecord{
+		{ID: "batch", WorkflowType: "batch", Key: "B-1", Status: wf.StatusRunning},
+		{ID: "load1", WorkflowType: "load", Key: "B-1/1", ParentID: "batch", Status: wf.StatusCompleted},
+		{ID: "load2", WorkflowType: "load", Key: "B-1/2", ParentID: "batch", Status: wf.StatusRunning},
+		{ID: "photo1", WorkflowType: "photo", Key: "P-1", ParentID: "load1", Status: wf.StatusCompleted},
+		{ID: "photo2", WorkflowType: "photo", Key: "P-2", ParentID: "load1", Status: wf.StatusFailed},
+		{ID: "other", WorkflowType: "batch", Key: "B-2", Status: wf.StatusRunning},
+	} {
+		r.CreatedAt = t0.Add(time.Duration(i) * time.Minute)
+		r.StartedAt = r.CreatedAt
+		r.BusinessDate = wf.BusinessDateFrom(t0)
+		if err := s.CreateRun(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := s.GetRun(ctx, "load1")
+	if got.ParentID != "batch" {
+		t.Fatalf("ParentID not round-tripped: %+v", got)
+	}
+	ids := func(f wf.RunFilter) []string {
+		runs, err := s.ListRuns(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range runs {
+			out = append(out, r.ID)
+			if r.ParentID != f.ParentID {
+				t.Fatalf("ListRuns(%+v) returned %+v", f, r)
+			}
+		}
+		return out
+	}
+	if got := ids(wf.RunFilter{ParentID: "batch"}); !slices.Equal(got, []string{"load2", "load1"}) {
+		t.Fatalf("children of batch = %v, want the direct children, newest first", got)
+	}
+	if got := ids(wf.RunFilter{ParentID: "batch", Statuses: []wf.RunStatus{wf.StatusRunning}}); !slices.Equal(got, []string{"load2"}) {
+		t.Fatalf("running children of batch = %v", got)
+	}
+	if got := ids(wf.RunFilter{ParentID: "other"}); len(got) != 0 {
+		t.Fatalf("other has no children, got %v", got)
+	}
+	for id, want := range map[string]wf.RunCounts{
+		"batch": {wf.StatusCompleted: 2, wf.StatusRunning: 1, wf.StatusFailed: 1},
+		"load1": {wf.StatusCompleted: 1, wf.StatusFailed: 1},
+		"other": {},
+	} {
+		got, err := s.CountDescendants(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Total() != want.Total() {
+			t.Fatalf("descendants of %s = %v, want %v", id, got, want)
+		}
+		for st, n := range want {
+			if got[st] != n {
+				t.Fatalf("descendants of %s = %v, want %v", id, got, want)
+			}
+		}
 	}
 }

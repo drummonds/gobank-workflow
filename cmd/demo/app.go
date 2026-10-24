@@ -20,6 +20,7 @@ import (
 	dbexplorer "git.bytestone.uk/hum3/go-dbexplorer"
 	_ "git.bytestone.uk/hum3/go-postgres"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/gobank-workflow/cmd/demo/definitions"
 	"git.bytestone.uk/hum3/gobank-workflow/internal/demoaccounts"
 	"git.bytestone.uk/hum3/gobank-workflow/sqlstore"
 	"git.bytestone.uk/hum3/gobank-workflow/view"
@@ -171,7 +172,7 @@ func (a *App) Release(ctx context.Context, failStage string) {
 	defer a.mu.Unlock()
 	version := a.nextVersion()
 	var stages []wf.Stage
-	for _, step := range releaseDefinition().Steps {
+	for _, step := range definitions.Release.Steps {
 		name := step.Name
 		stages = append(stages, wf.Stage{Name: name, Run: func(context.Context) error {
 			time.Sleep(2 * time.Millisecond) // a visible, if token, duration
@@ -181,7 +182,7 @@ func (a *App) Release(ctx context.Context, failStage string) {
 			return nil
 		}})
 	}
-	rec, err := a.runner.RunPipeline(ctx, wf.WorkflowRelease, version, a.current, stages)
+	rec, err := a.runner.RunPipeline(ctx, definitions.ReleaseType, version, a.current, stages)
 	switch {
 	case err != nil:
 		a.logf("release %s failed: %v", version, err)
@@ -191,15 +192,6 @@ func (a *App) Release(ctx context.Context, failStage string) {
 		a.shipped[2]++
 		a.logf("release %s shipped", version)
 	}
-}
-
-func releaseDefinition() wf.Definition {
-	for _, d := range wf.Definitions {
-		if d.Type == wf.WorkflowRelease {
-			return d
-		}
-	}
-	panic("release definition missing")
 }
 
 // ToggleFailNext arms or disarms an injected failure for the next day.
