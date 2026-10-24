@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-24
+
+ - Instances page: the Filter and Clear buttons line up with the filter inputs; Bulma's field margin no longer pushes them down; Child runs: `Runner.StartChild` starts an instance under a parent, recorded pending for the host's tick to run; `RunRecord.ParentID`, `RunFilter.ParentID` and `Store.CountDescendants` (schema v6 adds `parent_run_id`); a `Step` with `Child` and `Many` is a sub-process, drawn as one collapsed ⊞ box linking to the child definition; the instance page lists a run's children and links a child to its parent; The `Definitions` registry starts empty: a host sees only the workflows it runs. `DailyUpdate` is exported for gobank to register; the release definition, `WorkflowRelease` and `ReleaseStages` leave the library for the demo app (task-plus declares its own); `cmd/defd2` moves into the demo; Docs build: d2 pictures render at scale 1 with a fixed width, before the markdown pass checks them; `diagram` wraps more than four steps into rows of four so a long definition stays legible across the page
+
+### Added
+
+- Child runs: `Runner.StartChild` starts an instance under a parent, recorded pending for the host's tick to run; `RunRecord.ParentID`, `RunFilter.ParentID` and `Store.CountDescendants` (schema v6 adds `parent_run_id`); a `Step` with `Child` and `Many` is a sub-process, drawn as one collapsed ⊞ box linking to the child definition; the instance page lists a run's children and links a child to its parent (#35)
+
+### Changed
+
+- The `Definitions` registry starts empty: a host sees only the workflows it runs. `DailyUpdate` is exported for gobank to register; the release definition, `WorkflowRelease` and `ReleaseStages` leave the library for the demo app (task-plus declares its own); `cmd/defd2` moves into the demo (#36)
+
+### Fixed
+
+- Instances page: the Filter and Clear buttons line up with the filter inputs; Bulma's field margin no longer pushes them down (#28)
+- Docs build: d2 pictures render at scale 1 with a fixed width, before the markdown pass checks them; `diagram` wraps more than four steps into rows of four so a long definition stays legible across the page (#40)
+
 ## [0.10.0] - 2026-10-21
 
  - Cancel: an operator ends an instance from the queue — a terminal `cancelled` status, `Store.CancelRun`, and a Cancel button beside View for instances in hand but not running, offered when the host sets `view.Views.Cancel`
