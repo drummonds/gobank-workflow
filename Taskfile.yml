@@ -86,18 +86,18 @@ tasks:
   docs:d2:
     desc: Render d2 diagrams to SVG (hand-written, plus one generated per workflow the demo registers)
     cmds:
-      - d2 release-pipeline.d2 docs/release-pipeline.svg
-      - d2 schema.d2 docs/schema.svg
+      - d2 --scale 1 release-pipeline.d2 docs/release-pipeline.svg
+      - d2 --scale 1 schema.d2 docs/schema.svg
       - cd cmd/demo && go run ./defd2 -out ../../docs/definitions
-      - for f in docs/definitions/*.d2; do d2 "$f" "${f%.d2}.svg"; done
+      - for f in docs/definitions/*.d2; do d2 --scale 1 "$f" "${f%.d2}.svg"; done
       - cp docs/definitions/*.svg cmd/demo/assets/
       - chmod 644 docs/release-pipeline.svg docs/schema.svg docs/definitions/*.svg cmd/demo/assets/*.svg
 
   docs:build:
     desc: Build all documentation and WASM demo into docs/
     cmds:
-      - task: docs:md
       - task: docs:d2
+      - task: docs:md
       - task: app:wasm
       - task: wasm:build
       - mkdir -p docs/demo
