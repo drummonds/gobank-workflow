@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -199,8 +200,7 @@ func (r *Runner) park(ctx context.Context, run *RunRecord, stage string, already
 func (r *Runner) undo(ctx context.Context, runID string, before []Stage, done map[string]bool) string {
 	var undone []string
 	var failed error
-	for i := len(before) - 1; i >= 0; i-- {
-		st := before[i]
+	for _, st := range slices.Backward(before) {
 		if !done[st.Name] || st.Undo == nil {
 			continue
 		}
