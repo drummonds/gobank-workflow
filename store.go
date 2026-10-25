@@ -90,9 +90,9 @@ type RunFilter struct {
 	Revision    string // a Revision.ID
 	// ParentID lists the direct children of that run; empty is any run.
 	ParentID string
-	// InHandFirst lists the runs still in hand (RunStatus.InHand) before
+	// ActiveFirst lists the runs still active (RunStatus.Active) before
 	// the completed and cancelled: the work queue's order.
-	InHandFirst bool
+	ActiveFirst bool
 	Offset      int // skip this many, in list order
 	Limit       int // at most this many after the offset; 0 is no limit
 }

@@ -112,7 +112,7 @@ func mustContain(t *testing.T, body string, wants ...string) {
 	}
 }
 
-// queue is a store with work in hand: two purposes, every status.
+// queue is a store with active work: two purposes, every status.
 func queue() *store {
 	day := t0.Add(-24 * time.Hour)
 	return &store{runs: []wf.RunRecord{

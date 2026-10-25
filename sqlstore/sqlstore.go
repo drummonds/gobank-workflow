@@ -277,7 +277,7 @@ func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, e
 	where, args := runFilterSQL(f)
 	query := `SELECT id, workflow_type, business_date, instance_key, parent_run_id, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs` + where + ` ORDER BY `
-	if f.InHandFirst {
+	if f.ActiveFirst {
 		query += `CASE WHEN status IN ('completed', 'cancelled') THEN 1 ELSE 0 END, `
 	}
 	query += `created_at DESC`

@@ -136,9 +136,9 @@ const (
 	StatusCancelled RunStatus = "cancelled" // ended by an operator; only a rewind revives it
 )
 
-// InHand reports whether a run in status s is still work to do: anything
+// Active reports whether a run in status s is still work to do: anything
 // but completed or cancelled.
-func (s RunStatus) InHand() bool {
+func (s RunStatus) Active() bool {
 	return s != StatusCompleted && s != StatusCancelled
 }
 

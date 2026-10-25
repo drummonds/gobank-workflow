@@ -35,7 +35,7 @@ type Page struct {
 // Views serves the workflow pages. Mount Handler under Base with the
 // prefix stripped, e.g. http.StripPrefix("/workflows", v.Handler()) for
 // Base "/workflows/". Base itself is the instances page: the queue of
-// work in hand, filtered by its GET form.
+// active work, filtered by its GET form.
 type Views struct {
 	Store       Reader
 	Definitions []wf.Definition
@@ -50,7 +50,7 @@ type Views struct {
 	// own link, for paging and the like.
 	Detail func(r *http.Request, run wf.RunRecord, steps []wf.StepResult, href string) template.HTML
 	// Cancel, if set, ends an instance cancelled (wf.Store's CancelRun):
-	// the queue then offers it on every instance in hand but running.
+	// the queue then offers it on every active instance but running.
 	Cancel func(ctx context.Context, id string) error
 	// Frame, if set, writes a page inside the host's layout; otherwise the
 	// bare fragment is written.
@@ -138,9 +138,9 @@ func (v *Views) cancel(w http.ResponseWriter, r *http.Request) {
 }
 
 // cancellable reports whether the queue offers to cancel run: the host
-// can, and the run is in hand but not running, since a runner is on it.
+// can, and the run is active but not running, since a runner is on it.
 func (v *Views) cancellable(run wf.RunRecord) bool {
-	return v.Cancel != nil && run.Status.InHand() && run.Status != wf.StatusRunning
+	return v.Cancel != nil && run.Status.Active() && run.Status != wf.StatusRunning
 }
 
 // InstanceHref is the link to one instance's page.
