@@ -40,7 +40,7 @@ func (r *Runner) RunDaily(ctx context.Context, date BusinessDate) (*RunRecord, e
 	if err != nil {
 		return nil, fmt.Errorf("checking existing run: %w", err)
 	}
-	if existing != nil && !existing.Status.InHand() {
+	if existing != nil && !existing.Status.Active() {
 		return nil, nil
 	}
 

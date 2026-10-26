@@ -97,7 +97,7 @@ func (v *Views) storeFilter(q queueFilter) (wf.RunFilter, bool) {
 	return f, f.Types == nil || len(f.Types) > 0
 }
 
-// queueRuns is one page of the queue: the instances in hand, then the
+// queueRuns is one page of the queue: the active instances, then the
 // completed, newest first in each; or, when a status is asked for, the
 // newest in it. more says a later page has instances.
 func (v *Views) queueRuns(ctx context.Context, q queueFilter) (runs []wf.RunRecord, more bool, err error) {
@@ -108,7 +108,7 @@ func (v *Views) queueRuns(ctx context.Context, q queueFilter) (runs []wf.RunReco
 	if q.Status != "" {
 		f.Statuses = []wf.RunStatus{wf.RunStatus(q.Status)}
 	}
-	f.InHandFirst = q.Status == ""
+	f.ActiveFirst = q.Status == ""
 	f.Offset, f.Limit = (max(q.Page, 1)-1)*q.n(), q.n()+1
 	runs, err = v.Store.ListRuns(ctx, f)
 	if len(runs) > q.n() {
@@ -150,7 +150,7 @@ func (v *Views) purposeOf(r wf.RunRecord) (name string, filter queueFilter) {
 func (v *Views) instancesHTML(r *http.Request) string {
 	q := parseQueueFilter(r)
 	var b strings.Builder
-	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The work in hand — running, waiting and failed — then the newest completed, by purpose</p>`)
+	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The active work — running, waiting and failed — then the newest completed, by purpose</p>`)
 	v.filterForm(&b, q)
 	if q.Workflow != "" {
 		if def := v.definition(wf.WorkflowType(q.Workflow)); def != nil {
@@ -195,7 +195,7 @@ func (v *Views) filterForm(b *strings.Builder, q queueFilter) {
 	b.WriteString(`</select></div>` + end)
 	field("Status")
 	b.WriteString(`<div class="select is-small"><select name="status">`)
-	option("", "in hand, then completed", q.Status)
+	option("", "active, then completed", q.Status)
 	for _, s := range []wf.RunStatus{wf.StatusPending, wf.StatusRunning, wf.StatusWaiting, wf.StatusFailed, wf.StatusCompleted, wf.StatusCancelled} {
 		option(string(s), string(s), q.Status)
 	}

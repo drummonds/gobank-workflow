@@ -61,6 +61,11 @@ type Store interface {
 	// was undone, so the next attempt runs it again.
 	DeleteStep(ctx context.Context, runID, stepName string) error
 
+	// DeleteRun removes a run with its steps and every run under it, at
+	// any depth, with theirs: the host's call when the thing the run was
+	// about is itself deleted. No error for a run already gone.
+	DeleteRun(ctx context.Context, id string) error
+
 	// ListRuns returns the runs the filter matches, most recent first.
 	ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, error)
 
@@ -90,9 +95,9 @@ type RunFilter struct {
 	Revision    string // a Revision.ID
 	// ParentID lists the direct children of that run; empty is any run.
 	ParentID string
-	// InHandFirst lists the runs still in hand (RunStatus.InHand) before
+	// ActiveFirst lists the runs still active (RunStatus.Active) before
 	// the completed and cancelled: the work queue's order.
-	InHandFirst bool
+	ActiveFirst bool
 	Offset      int // skip this many, in list order
 	Limit       int // at most this many after the offset; 0 is no limit
 }

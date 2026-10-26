@@ -208,6 +208,27 @@ func (s *Store) DeleteStep(ctx context.Context, runID, stepName string) error {
 	return err
 }
 
+// DeleteRun removes the run, every run under it and all their steps.
+func (s *Store) DeleteRun(ctx context.Context, id string) error {
+	const tree = `WITH RECURSIVE tree(id) AS (
+	     SELECT id FROM workflow_runs WHERE id = ?
+	     UNION ALL
+	     SELECT r.id FROM workflow_runs r JOIN tree ON r.parent_run_id = tree.id
+	 ) `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, tree+`DELETE FROM workflow_steps WHERE run_id IN (SELECT id FROM tree)`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, tree+`DELETE FROM workflow_runs WHERE id IN (SELECT id FROM tree)`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) CompleteRun(ctx context.Context, id string) error {
 	now := time.Now().UTC().Format(stampLayout)
 	_, err := s.db.ExecContext(ctx,
@@ -277,7 +298,7 @@ func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, e
 	where, args := runFilterSQL(f)
 	query := `SELECT id, workflow_type, business_date, instance_key, parent_run_id, revision, step_names, status, started_at, completed_at, error_message, created_at
 		 FROM workflow_runs` + where + ` ORDER BY `
-	if f.InHandFirst {
+	if f.ActiveFirst {
 		query += `CASE WHEN status IN ('completed', 'cancelled') THEN 1 ELSE 0 END, `
 	}
 	query += `created_at DESC`

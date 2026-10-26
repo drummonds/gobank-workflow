@@ -428,3 +428,11 @@ func TestChildren(t *testing.T) {
 	}
 	storetest.Children(t, store)
 }
+
+func TestDeleted(t *testing.T) {
+	store, err := New(newTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storetest.Deleted(t, store)
+}

@@ -250,8 +250,8 @@ func (m *MemStore) ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, erro
 		}
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		if f.InHandFirst {
-			if hi, hj := sorted[i].Status.InHand(), sorted[j].Status.InHand(); hi != hj {
+		if f.ActiveFirst {
+			if hi, hj := sorted[i].Status.Active(), sorted[j].Status.Active(); hi != hj {
 				return hi
 			}
 		}
@@ -290,6 +290,26 @@ func (m *MemStore) CountDescendants(ctx context.Context, id string) (RunCounts, 
 		parents = next
 	}
 	return counts, nil
+}
+
+func (m *MemStore) DeleteRun(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	gone := map[string]bool{id: true}
+	for parents := []string{id}; len(parents) > 0; {
+		var next []string
+		for _, r := range m.runs {
+			if r.ParentID != "" && slices.Contains(parents, r.ParentID) && !gone[r.ID] {
+				gone[r.ID] = true
+				next = append(next, r.ID)
+			}
+		}
+		parents = next
+	}
+	m.runs = slices.DeleteFunc(m.runs, func(r RunRecord) bool { return gone[r.ID] })
+	m.steps = slices.DeleteFunc(m.steps, func(st StepResult) bool { return gone[st.RunID] })
+	return nil
 }
 
 func (m *MemStore) LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error) {

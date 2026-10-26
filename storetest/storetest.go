@@ -190,7 +190,7 @@ func Revisions(t *testing.T, s wf.Store) {
 }
 
 // FilteredRuns checks ListRuns under a RunFilter: each field narrows the
-// runs, fields combine, the newest come first (in hand before completed
+// runs, fields combine, the newest come first (active before completed
 // when asked), and Offset and Limit page them. s must
 // start empty.
 func FilteredRuns(t *testing.T, s wf.Store) {
@@ -227,8 +227,8 @@ func FilteredRuns(t *testing.T, s wf.Store) {
 		{"revision", wf.RunFilter{Revision: revB.ID}, []string{"f4", "f2"}},
 		{"offset skips the newest", wf.RunFilter{Offset: 1, Limit: 2}, []string{"f4", "f3"}},
 		{"offset without limit", wf.RunFilter{Offset: 3}, []string{"f2", "f1"}},
-		{"in hand first, then completed, each newest first", wf.RunFilter{InHandFirst: true}, []string{"f4", "f3", "f2", "f5", "f1"}},
-		{"in hand first pages across the completed", wf.RunFilter{InHandFirst: true, Types: []wf.WorkflowType{"ship"}, Offset: 1, Limit: 2}, []string{"f2", "f1"}},
+		{"active first, then completed, each newest first", wf.RunFilter{ActiveFirst: true}, []string{"f4", "f3", "f2", "f5", "f1"}},
+		{"active first pages across the completed", wf.RunFilter{ActiveFirst: true, Types: []wf.WorkflowType{"ship"}, Offset: 1, Limit: 2}, []string{"f2", "f1"}},
 		{"fields combine", wf.RunFilter{Types: []wf.WorkflowType{"ship"}, Statuses: []wf.RunStatus{wf.StatusCompleted, wf.StatusWaiting}, Limit: 1}, []string{"f4"}},
 	} {
 		runs, err := s.ListRuns(ctx, c.f)
@@ -300,7 +300,7 @@ func TimeOrder(t *testing.T, s wf.Store) {
 
 // Cancelled checks CancelRun: the run ends cancelled, the transitions a
 // runner makes leave it so, RestartRun (a rewind) revives it, and
-// InHandFirst lists it with the completed. s must start empty.
+// ActiveFirst lists it with the completed. s must start empty.
 func Cancelled(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -323,13 +323,13 @@ func Cancelled(t *testing.T, s wf.Store) {
 	if got.Status != wf.StatusCancelled || got.CompletedAt.IsZero() || got.Error != "tag: boom" {
 		t.Fatalf("CancelRun should end the run cancelled, keeping its error, got %+v", got)
 	}
-	runs, _ := s.ListRuns(ctx, wf.RunFilter{InHandFirst: true})
+	runs, _ := s.ListRuns(ctx, wf.RunFilter{ActiveFirst: true})
 	var order []string
 	for _, r := range runs {
 		order = append(order, r.ID)
 	}
 	if want := []string{"x3", "x2", "x1"}; !slices.Equal(order, want) {
-		t.Fatalf("in hand first should list cancelled with completed: got %v, want %v", order, want)
+		t.Fatalf("active first should list cancelled with completed: got %v, want %v", order, want)
 	}
 	for name, transition := range map[string]func() error{
 		"CompleteRun": func() error { return s.CompleteRun(ctx, "x1") },
@@ -418,5 +418,53 @@ func Children(t *testing.T, s wf.Store) {
 				t.Fatalf("descendants of %s = %v, want %v", id, got, want)
 			}
 		}
+	}
+}
+
+// Deleted checks DeleteRun: the run goes with its steps and every run
+// under it, at any depth, with theirs; nothing else is touched, and
+// deleting an unknown run is no error. s must start empty.
+func Deleted(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t0 := time.Date(2026, time.October, 26, 9, 0, 0, 0, time.UTC)
+	for i, r := range []wf.RunRecord{
+		{ID: "batch", WorkflowType: "batch", Key: "B-1", Status: wf.StatusCancelled},
+		{ID: "load1", WorkflowType: "load", Key: "B-1/1", ParentID: "batch", Status: wf.StatusCompleted},
+		{ID: "photo1", WorkflowType: "photo", Key: "P-1", ParentID: "load1", Status: wf.StatusCompleted},
+		{ID: "other", WorkflowType: "batch", Key: "B-2", Status: wf.StatusRunning},
+		{ID: "load2", WorkflowType: "load", Key: "B-2/1", ParentID: "other", Status: wf.StatusRunning},
+	} {
+		r.CreatedAt = t0.Add(time.Duration(i) * time.Minute)
+		r.StartedAt = r.CreatedAt
+		r.BusinessDate = wf.BusinessDateFrom(t0)
+		if err := s.CreateRun(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RecordStep(ctx, &wf.StepResult{ID: "step-" + r.ID, RunID: r.ID, StepName: "first", Status: wf.StatusCompleted, CreatedAt: r.CreatedAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.DeleteRun(ctx, "batch"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"batch", "load1", "photo1"} {
+		if got, err := s.GetRun(ctx, id); err == nil && got != nil {
+			t.Fatalf("%s survives DeleteRun(batch): %+v", id, got)
+		}
+		if steps, _ := s.ListSteps(ctx, id); len(steps) != 0 {
+			t.Fatalf("%s's steps survive DeleteRun(batch): %+v", id, steps)
+		}
+	}
+	for _, id := range []string{"other", "load2"} {
+		if got, err := s.GetRun(ctx, id); err != nil || got == nil {
+			t.Fatalf("%s was not under batch and should stay: %v %v", id, got, err)
+		}
+		if steps, _ := s.ListSteps(ctx, id); len(steps) != 1 {
+			t.Fatalf("%s's steps should stay: %+v", id, steps)
+		}
+	}
+	if err := s.DeleteRun(ctx, "batch"); err != nil {
+		t.Fatalf("deleting a run already gone: %v", err)
 	}
 }
