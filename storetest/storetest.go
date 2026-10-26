@@ -420,3 +420,51 @@ func Children(t *testing.T, s wf.Store) {
 		}
 	}
 }
+
+// Deleted checks DeleteRun: the run goes with its steps and every run
+// under it, at any depth, with theirs; nothing else is touched, and
+// deleting an unknown run is no error. s must start empty.
+func Deleted(t *testing.T, s wf.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t0 := time.Date(2026, time.October, 26, 9, 0, 0, 0, time.UTC)
+	for i, r := range []wf.RunRecord{
+		{ID: "batch", WorkflowType: "batch", Key: "B-1", Status: wf.StatusCancelled},
+		{ID: "load1", WorkflowType: "load", Key: "B-1/1", ParentID: "batch", Status: wf.StatusCompleted},
+		{ID: "photo1", WorkflowType: "photo", Key: "P-1", ParentID: "load1", Status: wf.StatusCompleted},
+		{ID: "other", WorkflowType: "batch", Key: "B-2", Status: wf.StatusRunning},
+		{ID: "load2", WorkflowType: "load", Key: "B-2/1", ParentID: "other", Status: wf.StatusRunning},
+	} {
+		r.CreatedAt = t0.Add(time.Duration(i) * time.Minute)
+		r.StartedAt = r.CreatedAt
+		r.BusinessDate = wf.BusinessDateFrom(t0)
+		if err := s.CreateRun(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RecordStep(ctx, &wf.StepResult{ID: "step-" + r.ID, RunID: r.ID, StepName: "first", Status: wf.StatusCompleted, CreatedAt: r.CreatedAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.DeleteRun(ctx, "batch"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"batch", "load1", "photo1"} {
+		if got, err := s.GetRun(ctx, id); err == nil && got != nil {
+			t.Fatalf("%s survives DeleteRun(batch): %+v", id, got)
+		}
+		if steps, _ := s.ListSteps(ctx, id); len(steps) != 0 {
+			t.Fatalf("%s's steps survive DeleteRun(batch): %+v", id, steps)
+		}
+	}
+	for _, id := range []string{"other", "load2"} {
+		if got, err := s.GetRun(ctx, id); err != nil || got == nil {
+			t.Fatalf("%s was not under batch and should stay: %v %v", id, got, err)
+		}
+		if steps, _ := s.ListSteps(ctx, id); len(steps) != 1 {
+			t.Fatalf("%s's steps should stay: %+v", id, steps)
+		}
+	}
+	if err := s.DeleteRun(ctx, "batch"); err != nil {
+		t.Fatalf("deleting a run already gone: %v", err)
+	}
+}

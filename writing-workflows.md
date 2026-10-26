@@ -17,7 +17,7 @@ compiled and run by `go test`, so it cannot drift from the engine.
 | step | one unit recorded against an instance: a stage, or one account's end of day | `StepResult` |
 | stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both, an `Undo` when its work must not outlive a failed run, and `Final` when its work must never be redone | `Stage` |
 | attempt | one call of the runner for an instance; a retry is a new attempt at the same instance, never a new instance | `StartedAt` is the attempt's start |
-| child | an instance started under another, its parent; the parent's children are the instances its sub-process started | `RunRecord.ParentID`; `RunFilter.ParentID` lists them, `Store.CountDescendants` counts them by status at any depth |
+| child | an instance started under another, its parent; the parent's children are the instances its sub-process started | `RunRecord.ParentID`; `RunFilter.ParentID` lists them, `Store.CountDescendants` counts them by status at any depth; `Store.DeleteRun` removes a run and every run under it, for a host deleting the thing the run was about |
 | sub-process step | a step that starts instances of a child definition, one or many, and does not wait for them | `Step.Child`, `Step.Many`; the stage calls `Runner.StartChild` |
 
 An instance renders from the revision it recorded, not from the live

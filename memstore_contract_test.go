@@ -18,3 +18,4 @@ func TestMemStore_FilteredRuns(t *testing.T)  { storetest.FilteredRuns(t, wf.New
 func TestMemStore_TimeOrder(t *testing.T)     { storetest.TimeOrder(t, wf.NewMemStore()) }
 func TestMemStore_Cancelled(t *testing.T)     { storetest.Cancelled(t, wf.NewMemStore()) }
 func TestMemStore_Children(t *testing.T)      { storetest.Children(t, wf.NewMemStore()) }
+func TestMemStore_Deleted(t *testing.T)       { storetest.Deleted(t, wf.NewMemStore()) }

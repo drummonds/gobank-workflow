@@ -61,6 +61,11 @@ type Store interface {
 	// was undone, so the next attempt runs it again.
 	DeleteStep(ctx context.Context, runID, stepName string) error
 
+	// DeleteRun removes a run with its steps and every run under it, at
+	// any depth, with theirs: the host's call when the thing the run was
+	// about is itself deleted. No error for a run already gone.
+	DeleteRun(ctx context.Context, id string) error
+
 	// ListRuns returns the runs the filter matches, most recent first.
 	ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, error)
 

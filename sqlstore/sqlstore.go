@@ -208,6 +208,27 @@ func (s *Store) DeleteStep(ctx context.Context, runID, stepName string) error {
 	return err
 }
 
+// DeleteRun removes the run, every run under it and all their steps.
+func (s *Store) DeleteRun(ctx context.Context, id string) error {
+	const tree = `WITH RECURSIVE tree(id) AS (
+	     SELECT id FROM workflow_runs WHERE id = ?
+	     UNION ALL
+	     SELECT r.id FROM workflow_runs r JOIN tree ON r.parent_run_id = tree.id
+	 ) `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, tree+`DELETE FROM workflow_steps WHERE run_id IN (SELECT id FROM tree)`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, tree+`DELETE FROM workflow_runs WHERE id IN (SELECT id FROM tree)`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) CompleteRun(ctx context.Context, id string) error {
 	now := time.Now().UTC().Format(stampLayout)
 	_, err := s.db.ExecContext(ctx,
