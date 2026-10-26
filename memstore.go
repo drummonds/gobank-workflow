@@ -292,6 +292,26 @@ func (m *MemStore) CountDescendants(ctx context.Context, id string) (RunCounts, 
 	return counts, nil
 }
 
+func (m *MemStore) DeleteRun(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	gone := map[string]bool{id: true}
+	for parents := []string{id}; len(parents) > 0; {
+		var next []string
+		for _, r := range m.runs {
+			if r.ParentID != "" && slices.Contains(parents, r.ParentID) && !gone[r.ID] {
+				gone[r.ID] = true
+				next = append(next, r.ID)
+			}
+		}
+		parents = next
+	}
+	m.runs = slices.DeleteFunc(m.runs, func(r RunRecord) bool { return gone[r.ID] })
+	m.steps = slices.DeleteFunc(m.steps, func(st StepResult) bool { return gone[st.RunID] })
+	return nil
+}
+
 func (m *MemStore) LastCompletedDate(ctx context.Context, wfType WorkflowType) (BusinessDate, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
