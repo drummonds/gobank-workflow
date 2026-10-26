@@ -250,8 +250,8 @@ func (m *MemStore) ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, erro
 		}
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		if f.InHandFirst {
-			if hi, hj := sorted[i].Status.InHand(), sorted[j].Status.InHand(); hi != hj {
+		if f.ActiveFirst {
+			if hi, hj := sorted[i].Status.Active(), sorted[j].Status.Active(); hi != hj {
 				return hi
 			}
 		}
