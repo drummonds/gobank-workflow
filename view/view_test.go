@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -43,6 +44,15 @@ func (s *store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, e
 		_ = m.CreateRun(ctx, &r)
 	}
 	return m.ListRuns(ctx, f)
+}
+
+// CountMatching counts as the memory store does.
+func (s *store) CountMatching(ctx context.Context, f wf.RunFilter) (int, error) {
+	m := wf.NewMemStore()
+	for _, r := range s.runs {
+		_ = m.CreateRun(ctx, &r)
+	}
+	return m.CountMatching(ctx, f)
 }
 
 func (s *store) CountRuns(context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
@@ -144,32 +154,52 @@ func inOrder(t *testing.T, body string, wants ...string) {
 	}
 }
 
-func TestTheQueueListsCurrentInstancesBeforeTheNewestCompletedGroupedByPurpose(t *testing.T) {
+func TestTheQueueIsOneTableOfCurrentInstancesBeforeTheNewestCompleted(t *testing.T) {
 	p := serve(t, views(queue()), "/workflows/instances")
 	if p.status != 200 || p.active != "instances" {
 		t.Fatalf("status %d active %q", p.status, p.active)
 	}
 	queued := p.body[strings.Index(p.body, "</form>"):]
-	// The group with the newest current work comes first. In a group,
-	// current instances come before completed ones, each newest first; the
-	// headline is the purpose's newest instance, whatever its status.
-	inOrder(t, queued, "end of day", "release", "v1.3.0", "completed", "via", "ship",
-		`href="/workflows/instances/w"`, `href="/workflows/instances/f"`, `href="/workflows/instances/c-new"`, `href="/workflows/instances/c-old"`)
+	// Current instances come before completed ones, each newest first,
+	// whatever their purpose; a row names its purpose, leading to that
+	// purpose's queue.
+	inOrder(t, queued, `href="/workflows/instances/eod"`, `href="/workflows/instances?purpose=end+of+day">end of day</a>`,
+		`href="/workflows/instances/w"`, `href="/workflows/instances?purpose=release">release</a>`,
+		`href="/workflows/instances/f"`, `href="/workflows/instances/c-new"`, `href="/workflows/instances/c-old"`)
+	if strings.Count(queued, "<table") != 1 || strings.Contains(queued, "<h2") {
+		t.Fatalf("the queue should be one table with no group headings:\n%s", queued)
+	}
 	if root := serve(t, views(queue()), "/workflows/"); root.body != p.body {
 		t.Fatal("the base itself should be the queue")
 	}
 	mustContain(t, serve(t, views(&store{}), "/workflows/instances").body, "No instances yet")
 }
 
+// pageNav is the queue's page navigation as its words: Previous, the page
+// numbers and ellipses, Next.
+func pageNav(t *testing.T, body string) []string {
+	t.Helper()
+	i, j := strings.Index(body, "<nav"), strings.LastIndex(body, "</nav>")
+	if i < 0 || j < 0 {
+		return nil
+	}
+	nav := body[i:j]
+	if strings.Count(nav, "<ul") != 1 || strings.Index(nav, "<ul") > strings.Index(nav, "<a") {
+		t.Fatalf("the page navigation should be one group:\n%s", nav)
+	}
+	return strings.Fields(regexp.MustCompile(`<[^>]*>`).ReplaceAllString(nav, " "))
+}
+
 func TestTheQueuePagesNAtATime(t *testing.T) {
 	for _, c := range []struct {
-		query      string
-		shown      []string // instance rows, in order
-		prev, next string   // pager links; "" when there is none
+		query string
+		shown []string // instance rows, in order
+		nav   []string // the page navigation, as words
 	}{
-		{"n=2", []string{"eod", "w"}, "", "n=2&amp;page=2"},
-		{"n=2&page=2", []string{"f", "c-new"}, "n=2&amp;page=1", "n=2&amp;page=3"},
-		{"n=2&page=3", []string{"c-old"}, "n=2&amp;page=2", ""},
+		{"n=2", []string{"eod", "w"}, []string{"1", "2", "3", "Next"}},
+		{"n=2&page=2", []string{"f", "c-new"}, []string{"Previous", "1", "2", "3", "Next"}},
+		{"n=2&page=3", []string{"c-old"}, []string{"Previous", "1", "2", "3"}},
+		{"n=5", []string{"eod", "w", "f", "c-new", "c-old"}, nil},
 	} {
 		body := serve(t, views(queue()), "/workflows/instances?"+c.query).body
 		var rows []string
@@ -180,24 +210,38 @@ func TestTheQueuePagesNAtATime(t *testing.T) {
 		if n := strings.Count(body, `</strong></a></td>`); n != len(c.shown) {
 			t.Errorf("%s: %d rows, want %d", c.query, n, len(c.shown))
 		}
-		for label, link := range map[string]string{"Previous": c.prev, "Next": c.next} {
-			pager := `href="/workflows/instances?` + link + `">` + label
-			if got := strings.Contains(body, ">"+label+"</a>"); got != (link != "") {
-				t.Errorf("%s: %s shown %v", c.query, label, got)
-			} else if link != "" {
-				mustContain(t, body, pager)
-			}
+		if nav := pageNav(t, body); !slices.Equal(nav, c.nav) {
+			t.Errorf("%s: page navigation %q, want %q", c.query, nav, c.nav)
 		}
 	}
-	// The headline is the purpose's newest instance, not the page's.
-	page3 := serve(t, views(queue()), "/workflows/instances?n=2&page=3").body
-	inOrder(t, page3[strings.Index(page3, "</form>"):], "release", `href="/workflows/instances/c-new"`, `href="/workflows/instances/c-old"><strong>`)
+	page2 := serve(t, views(queue()), "/workflows/instances?n=2&page=2").body
+	mustContain(t, page2, `href="/workflows/instances?n=2&amp;page=1">Previous</a>`, `href="/workflows/instances?n=2&amp;page=3">3</a>`,
+		`href="/workflows/instances?n=2&amp;page=3">Next</a>`, `aria-current="page">2</a>`)
 	mustContain(t, serve(t, views(queue()), "/workflows/instances?n=2&page=9").body, "No instances on page 9")
 }
 
-// TestTheFilterNarrowsTheQueue: the un-narrowed queue is the top-level
-// instances; a child is listed once the filter names its purpose,
-// workflow, revision or key, and stays on its parent's page otherwise.
+func TestThePageNavShowsUpToFivePagesAroundTheCurrent(t *testing.T) {
+	s := &store{}
+	for i := range 12 {
+		s.runs = append(s.runs, run(fmt.Sprintf("r%02d", i), shipping, fmt.Sprintf("v0.%d.0", i), wf.StatusCompleted, t0.Add(time.Duration(i)*time.Minute)))
+	}
+	for _, c := range []struct {
+		page int
+		nav  []string
+	}{
+		{1, []string{"1", "2", "…", "12", "Next"}},
+		{2, []string{"Previous", "1", "2", "3", "…", "12", "Next"}},
+		{6, []string{"Previous", "1", "…", "5", "6", "7", "…", "12", "Next"}},
+		{11, []string{"Previous", "1", "…", "10", "11", "12", "Next"}},
+		{12, []string{"Previous", "1", "…", "11", "12"}},
+	} {
+		body := serve(t, views(s), fmt.Sprintf("/workflows/instances?n=1&page=%d", c.page)).body
+		if nav := pageNav(t, body); !slices.Equal(nav, c.nav) {
+			t.Errorf("page %d: navigation %q, want %q", c.page, nav, c.nav)
+		}
+	}
+}
+
 func TestTheFilterNarrowsTheQueue(t *testing.T) {
 	for _, c := range []struct {
 		query string
@@ -232,7 +276,9 @@ func TestTheFilterNarrowsTheQueue(t *testing.T) {
 
 func TestTheQueueDrillsDownFromPurposeToWorkflowToRevision(t *testing.T) {
 	body := serve(t, views(queue()), "/workflows/instances").body
-	mustContain(t, body, `href="/workflows/instances?purpose=release"`, `href="/workflows/instances?workflow=ship"`)
+	mustContain(t, body, `href="/workflows/instances?purpose=release"`, `href="/workflows/definitions/ship"`)
+	// A purpose's queue leads to each workflow's definition, and that to the workflow's queue.
+	mustContain(t, serve(t, views(queue()), "/workflows/definitions/ship").body, `href="/workflows/instances?workflow=ship"`)
 	// An instance's revision leads to the queue of that revision's instances.
 	mustContain(t, serve(t, views(queue()), "/workflows/instances/w").body,
 		`href="/workflows/instances?revision=`+shipping.Revision().ID+`&amp;workflow=ship"`)
@@ -510,9 +556,9 @@ func TestTheQueueNamesWhatRanLinkedToItsDefinition(t *testing.T) {
 }
 
 // The host's own page for an instance, when it has one, is preferred
-// wherever an instance is linked: the queue row and headline, and a
-// child on its parent's page; the generic instance page stays a step
-// away. Without one, the instance page is the link.
+// wherever an instance is linked: the queue row and a child on its
+// parent's page; the generic instance page stays a step away. Without
+// one, the instance page is the link.
 func TestTheHostsOwnPageIsPreferredWhenItHasOne(t *testing.T) {
 	v := views(queue())
 	v.Specific = func(r wf.RunRecord) string {
@@ -522,7 +568,7 @@ func TestTheHostsOwnPageIsPreferredWhenItHasOne(t *testing.T) {
 		return ""
 	}
 	body := serve(t, v, "/workflows/instances").body
-	mustContain(t, body, `href="/releases/v1.3.0">v1.3.0</a>`, // the headline
+	mustContain(t, body, `<a href="/releases/v1.3.0"><strong>v1.3.0</strong></a>`,
 		`<a href="/releases/v1.2.0"><strong>v1.2.0</strong></a>`, `href="/workflows/instances/w">Instance</a>`,
 		`<a href="/workflows/instances/f"><strong>v1.1.0</strong></a>`)
 	if strings.Contains(body, `href="/workflows/instances/f">Instance`) {

@@ -264,6 +264,19 @@ func (m *MemStore) ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, erro
 	return sorted, nil
 }
 
+func (m *MemStore) CountMatching(ctx context.Context, f RunFilter) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	n := 0
+	for _, r := range m.runs {
+		if f.matches(r) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f RunFilter) matches(r RunRecord) bool {
 	return (len(f.Types) == 0 || slices.Contains(f.Types, r.WorkflowType)) &&
 		(len(f.Statuses) == 0 || slices.Contains(f.Statuses, r.Status)) &&

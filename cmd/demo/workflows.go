@@ -23,6 +23,12 @@ func (s lockedStore) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunReco
 	return s.a.store.ListRuns(ctx, f)
 }
 
+func (s lockedStore) CountMatching(ctx context.Context, f wf.RunFilter) (int, error) {
+	s.a.mu.Lock()
+	defer s.a.mu.Unlock()
+	return s.a.store.CountMatching(ctx, f)
+}
+
 func (s lockedStore) CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
 	s.a.mu.Lock()
 	defer s.a.mu.Unlock()

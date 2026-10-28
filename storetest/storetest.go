@@ -191,8 +191,9 @@ func Revisions(t *testing.T, s wf.Store) {
 
 // FilteredRuns checks ListRuns under a RunFilter: each field narrows the
 // runs, fields combine, the newest come first (active before completed
-// when asked), and Offset and Limit page them. s must
-// start empty.
+// when asked), and Offset and Limit page them; and CountMatching counts
+// what the filter matches, whatever its order and paging. s must start
+// empty.
 func FilteredRuns(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -241,6 +242,25 @@ func FilteredRuns(t *testing.T, s wf.Store) {
 		}
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		f    wf.RunFilter
+		want int
+	}{
+		{"no filter counts every run", wf.RunFilter{}, 5},
+		{"types", wf.RunFilter{Types: []wf.WorkflowType{"ship"}}, 3},
+		{"order, offset and limit do not count", wf.RunFilter{ActiveFirst: true, Offset: 1, Limit: 2}, 5},
+		{"fields combine", wf.RunFilter{Types: []wf.WorkflowType{"ship"}, Statuses: []wf.RunStatus{wf.StatusCompleted, wf.StatusWaiting}}, 2},
+		{"nothing matches", wf.RunFilter{KeyContains: "%"}, 0},
+	} {
+		n, err := s.CountMatching(ctx, c.f)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if n != c.want {
+			t.Errorf("%s: counted %d, want %d", c.name, n, c.want)
 		}
 	}
 }
