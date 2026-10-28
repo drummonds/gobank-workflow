@@ -68,3 +68,39 @@ func (p *Processor) ProcessDay(_ context.Context, date wf.BusinessDate) (wf.DayR
 	}
 	return wf.DayResult{Date: date, Accounts: results}, nil
 }
+
+// Balance is the account's current balance in minor units; ok is false
+// for an account the book does not have.
+func (p *Processor) Balance(id string) (balance int64, ok bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if a := p.find(id); a != nil {
+		return a.balance, true
+	}
+	return 0, false
+}
+
+// Debit takes amount from the account. It refuses an unknown account and
+// more than the balance, leaving the balance as it was.
+func (p *Processor) Debit(id string, amount int64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	a := p.find(id)
+	if a == nil {
+		return fmt.Errorf("demoaccounts: no account %s", id)
+	}
+	if amount > a.balance {
+		return fmt.Errorf("demoaccounts: %s: %d exceeds balance %d", id, amount, a.balance)
+	}
+	a.balance -= amount
+	return nil
+}
+
+func (p *Processor) find(id string) *account {
+	for i := range p.accounts {
+		if p.accounts[i].id == id {
+			return &p.accounts[i]
+		}
+	}
+	return nil
+}

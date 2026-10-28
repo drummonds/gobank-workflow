@@ -1,7 +1,8 @@
 // Package definitions declares the demo bank's workflows and registers
 // them with the engine, as a host does: the end of day the engine runs
-// itself, and a release pipeline simulated stage by stage. The pages and
-// diagrams show these two and nothing else.
+// itself, a release pipeline simulated stage by stage, and a payment batch
+// whose payments are instances of their own. The pages and diagrams show
+// these four and nothing else.
 package definitions
 
 import wf "git.bytestone.uk/hum3/gobank-workflow"
@@ -30,6 +31,42 @@ var Release = wf.Definition{
 	},
 }
 
+// BatchType is the type of PaymentBatch; PaymentType the type of Payment.
+const (
+	BatchType   wf.WorkflowType = "payment_batch"
+	PaymentType wf.WorkflowType = "payment"
+)
+
+const srcDemo = "https://git.bytestone.uk/hum3/gobank-workflow/src/branch/main/cmd/demo/payments.go"
+
+// PaymentBatch is a file of payments paid as one instance: a master whose
+// details are the payments, each a child instance of Payment. The batch
+// starts them and does not wait; settling does.
+var PaymentBatch = wf.Definition{
+	Type:        BatchType,
+	Purpose:     wf.Purpose{Name: "payments", Description: "Pay the customers' instructions out of their accounts."},
+	Description: "Pay a file of payments. Each payment is an instance of its own under the batch; the batch settles once every payment has finished, and fails if any of them failed.",
+	InstanceKey: "batch reference",
+	Steps: []wf.Step{
+		{Name: "receive", Description: "take the file in: count the payments and total them", Source: srcDemo},
+		{Name: "start payments", Description: "start one payment instance per payment in the file", Source: srcDemo, Child: PaymentType, Many: true},
+		{Name: "settle", Description: "wait until no payment is still active; fail the batch if any payment failed", Source: srcDemo},
+	},
+}
+
+// Payment is one payment of a batch: a detail of its master, keyed by the
+// batch reference and its position in the file.
+var Payment = wf.Definition{
+	Type:        PaymentType,
+	Purpose:     PaymentBatch.Purpose,
+	Description: "Pay one payment of a batch out of the paying account.",
+	InstanceKey: "batch reference/position",
+	Steps: []wf.Step{
+		{Name: "check funds", Description: "the paying account covers the amount", Source: srcDemo},
+		{Name: "post", Description: "debit the paying account", Source: srcDemo},
+	},
+}
+
 func init() {
-	wf.Definitions = append(wf.Definitions, wf.DailyUpdate, Release)
+	wf.Definitions = append(wf.Definitions, wf.DailyUpdate, Release, PaymentBatch, Payment)
 }
