@@ -270,7 +270,8 @@ func (f RunFilter) matches(r RunRecord) bool {
 		!r.CreatedAt.Before(f.Since.Truncate(time.Second)) &&
 		strings.Contains(strings.ToLower(r.Key), strings.ToLower(f.KeyContains)) &&
 		(f.Revision == "" || r.Revision.ID == f.Revision) &&
-		(f.ParentID == "" || r.ParentID == f.ParentID)
+		(f.ParentID == "" || r.ParentID == f.ParentID) &&
+		(!f.TopLevel || r.ParentID == "")
 }
 
 func (m *MemStore) CountDescendants(ctx context.Context, id string) (RunCounts, error) {

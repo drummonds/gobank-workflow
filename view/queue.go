@@ -70,9 +70,13 @@ func (v *Views) queueHref(q queueFilter) string {
 
 // storeFilter is the filter as the store takes it, without the status and
 // limit the queue sets per query; false when nothing can match, as for a
-// purpose no definition serves.
+// purpose no definition serves. The queue lists the top-level instances,
+// a child being read on its parent's page, unless the filter names a
+// purpose, workflow, revision or key: then the operator has asked for
+// children by name and they are listed too.
 func (v *Views) storeFilter(q queueFilter) (wf.RunFilter, bool) {
-	f := wf.RunFilter{KeyContains: q.Key, Revision: q.Revision}
+	f := wf.RunFilter{KeyContains: q.Key, Revision: q.Revision,
+		TopLevel: q.Purpose == "" && q.Workflow == "" && q.Revision == "" && q.Key == ""}
 	if q.Purpose != "" {
 		f.Types = []wf.WorkflowType{} // set, so an unserved purpose matches nothing
 		for _, d := range v.Definitions {
@@ -150,7 +154,7 @@ func (v *Views) purposeOf(r wf.RunRecord) (name string, filter queueFilter) {
 func (v *Views) instancesHTML(r *http.Request) string {
 	q := parseQueueFilter(r)
 	var b strings.Builder
-	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The active work — running, waiting and failed — then the newest completed, by purpose</p>`)
+	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The active work — running, waiting and failed — then the newest completed, by purpose; a child instance is on its parent's page unless the filter names its purpose, workflow or key</p>`)
 	v.filterForm(&b, q)
 	if q.Workflow != "" {
 		if def := v.definition(wf.WorkflowType(q.Workflow)); def != nil {

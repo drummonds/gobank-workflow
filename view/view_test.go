@@ -112,17 +112,24 @@ func mustContain(t *testing.T, body string, wants ...string) {
 	}
 }
 
-// queue is a store with active work: two purposes, every status.
+// queue is a store with active work: two purposes, every status, and a
+// child instance under the waiting one.
 func queue() *store {
 	day := t0.Add(-24 * time.Hour)
+	child := run("w-child", shipping, "v1.2.0/1", wf.StatusRunning, t0.Add(2*time.Hour+time.Minute))
+	child.ParentID = "w"
 	return &store{runs: []wf.RunRecord{
 		run("c-old", shipping, "v1.0.0", wf.StatusCompleted, day),
 		run("f", shipping, "v1.1.0", wf.StatusFailed, t0.Add(time.Hour)),
 		run("w", shipping, "v1.2.0", wf.StatusWaiting, t0.Add(2*time.Hour)),
+		child,
 		run("c-new", shipping, "v1.3.0", wf.StatusCompleted, t0.Add(3*time.Hour)),
 		run("eod", accrual, "", wf.StatusRunning, t0.Add(4*time.Hour)),
 	}}
 }
+
+// queueIDs is every instance in queue(), top level and child.
+var queueIDs = []string{"eod", "w", "w-child", "f", "c-new", "c-old"}
 
 // inOrder fails unless each want appears in body, each after the last.
 func inOrder(t *testing.T, body string, wants ...string) {
@@ -188,23 +195,30 @@ func TestTheQueuePagesNAtATime(t *testing.T) {
 	mustContain(t, serve(t, views(queue()), "/workflows/instances?n=2&page=9").body, "No instances on page 9")
 }
 
+// TestTheFilterNarrowsTheQueue: the un-narrowed queue is the top-level
+// instances; a child is listed once the filter names its purpose,
+// workflow, revision or key, and stays on its parent's page otherwise.
 func TestTheFilterNarrowsTheQueue(t *testing.T) {
 	for _, c := range []struct {
 		query string
 		shown []string // instance ids listed
 		echo  string   // the form keeps the filter
 	}{
-		{"purpose=release", []string{"w", "f", "c-new", "c-old"}, `<option value="release" selected>`},
+		{"", []string{"eod", "w", "f", "c-new", "c-old"}, ""},
+		{"purpose=release", []string{"w", "w-child", "f", "c-new", "c-old"}, `<option value="release" selected>`},
 		{"workflow=accrue", []string{"eod"}, `<option value="accrue" selected>`},
+		{"workflow=ship", []string{"w", "w-child", "f", "c-new", "c-old"}, `<option value="ship" selected>`},
 		{"status=failed", []string{"f"}, `<option value="failed" selected>`},
+		{"status=running", []string{"eod"}, `<option value="running" selected>`},
 		{"since=2026-03-01", []string{"eod", "w", "f", "c-new"}, `value="2026-03-01"`},
 		{"key=1.3", []string{"c-new"}, `value="1.3"`},
-		{"workflow=ship&revision=" + shipping.Revision().ID, []string{"w", "f", "c-new", "c-old"}, shipping.Revision().ID},
+		{"key=1.2", []string{"w", "w-child"}, `value="1.2"`},
+		{"workflow=ship&revision=" + shipping.Revision().ID, []string{"w", "w-child", "f", "c-new", "c-old"}, shipping.Revision().ID},
 		{"purpose=release&workflow=accrue", nil, ""},
 		{"purpose=nobody", nil, ""},
 	} {
 		body := serve(t, views(queue()), "/workflows/instances?"+c.query).body
-		for _, id := range []string{"eod", "w", "f", "c-new", "c-old"} {
+		for _, id := range queueIDs {
 			if listed := strings.Contains(body, `href="/workflows/instances/`+id+`"`); listed != slices.Contains(c.shown, id) {
 				t.Errorf("%s: %s listed %v, want %v", c.query, id, listed, !listed)
 			}

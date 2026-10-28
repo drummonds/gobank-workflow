@@ -95,6 +95,10 @@ type RunFilter struct {
 	Revision    string // a Revision.ID
 	// ParentID lists the direct children of that run; empty is any run.
 	ParentID string
+	// TopLevel lists only the runs with no parent: the queue's view,
+	// where a child is read on its parent's page. With ParentID set
+	// nothing matches.
+	TopLevel bool
 	// ActiveFirst lists the runs still active (RunStatus.Active) before
 	// the completed and cancelled: the work queue's order.
 	ActiveFirst bool

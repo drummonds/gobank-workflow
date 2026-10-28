@@ -85,7 +85,7 @@ The [demo app](app/) is the same Go program as `task demo` serves on a workstati
 
 | Menu | Page | Shows |
 |---|---|---|
-| Workflows → Instances | `workflows/instances` | every run in the store, most recent first; each opens its state and the per-account steps |
+| Workflows → Instances | `workflows/instances` | the top-level runs in the store, active first then most recent; a child run is on its parent's page unless the filter names its purpose, workflow or key; each opens its state and the per-account steps |
 | Workflows → Definitions | `workflows/definitions` | the `Definitions` registry with instance counts by state; each opens its instances |
 | Simulation | `simulation` | the driver: advance 1, 7 or 30 business days, arm a failure for the next day, ship the next version through the release pipeline (optionally failing at a chosen stage), reset |
 | DB Explorer | `internal/explorer` | tables, columns, indexes and rows of the live schema, including `schema_migrations` |

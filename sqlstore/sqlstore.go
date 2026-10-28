@@ -373,6 +373,9 @@ func runFilterSQL(f wf.RunFilter) (string, []any) {
 		conds = append(conds, `parent_run_id = ?`)
 		args = append(args, f.ParentID)
 	}
+	if f.TopLevel {
+		conds = append(conds, `parent_run_id = ''`)
+	}
 	if len(conds) == 0 {
 		return "", nil
 	}
