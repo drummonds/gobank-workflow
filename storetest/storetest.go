@@ -353,8 +353,9 @@ func Cancelled(t *testing.T, s wf.Store) {
 }
 
 // Children checks the parent link: ParentID round-trips, ListRuns by
-// ParentID is a run's direct children, and CountDescendants counts every
-// run under it, at any depth, by status. s must start empty.
+// ParentID is a run's direct children, by TopLevel the runs with no
+// parent, and CountDescendants counts every run under it, at any depth,
+// by status. s must start empty.
 func Children(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -400,6 +401,15 @@ func Children(t *testing.T, s wf.Store) {
 	}
 	if got := ids(wf.RunFilter{ParentID: "other"}); len(got) != 0 {
 		t.Fatalf("other has no children, got %v", got)
+	}
+	if got := ids(wf.RunFilter{TopLevel: true}); !slices.Equal(got, []string{"other", "batch"}) {
+		t.Fatalf("top level = %v, want the runs with no parent, newest first", got)
+	}
+	if got := ids(wf.RunFilter{TopLevel: true, KeyContains: "b-1"}); !slices.Equal(got, []string{"batch"}) {
+		t.Fatalf("top level narrows with the other fields, got %v", got)
+	}
+	if got := ids(wf.RunFilter{TopLevel: true, ParentID: "batch"}); len(got) != 0 {
+		t.Fatalf("top level and a parent match nothing, got %v", got)
 	}
 	for id, want := range map[string]wf.RunCounts{
 		"batch": {wf.StatusCompleted: 2, wf.StatusRunning: 1, wf.StatusFailed: 1},

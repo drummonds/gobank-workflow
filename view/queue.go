@@ -70,9 +70,13 @@ func (v *Views) queueHref(q queueFilter) string {
 
 // storeFilter is the filter as the store takes it, without the status and
 // limit the queue sets per query; false when nothing can match, as for a
-// purpose no definition serves.
+// purpose no definition serves. The queue lists the top-level instances,
+// a child being read on its parent's page, unless the filter names a
+// purpose, workflow, revision or key: then the operator has asked for
+// children by name and they are listed too.
 func (v *Views) storeFilter(q queueFilter) (wf.RunFilter, bool) {
-	f := wf.RunFilter{KeyContains: q.Key, Revision: q.Revision}
+	f := wf.RunFilter{KeyContains: q.Key, Revision: q.Revision,
+		TopLevel: q.Purpose == "" && q.Workflow == "" && q.Revision == "" && q.Key == ""}
 	if q.Purpose != "" {
 		f.Types = []wf.WorkflowType{} // set, so an unserved purpose matches nothing
 		for _, d := range v.Definitions {
@@ -150,7 +154,7 @@ func (v *Views) purposeOf(r wf.RunRecord) (name string, filter queueFilter) {
 func (v *Views) instancesHTML(r *http.Request) string {
 	q := parseQueueFilter(r)
 	var b strings.Builder
-	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The active work — running, waiting and failed — then the newest completed, by purpose</p>`)
+	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The active work — running, waiting and failed — then the newest completed, by purpose; a child instance is on its parent's page unless the filter names its purpose, workflow or key</p>`)
 	v.filterForm(&b, q)
 	if q.Workflow != "" {
 		if def := v.definition(wf.WorkflowType(q.Workflow)); def != nil {
@@ -257,18 +261,15 @@ func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter
 		rs := groups[name]
 		_, filter := v.purposeOf(rs[0])
 		newest := v.headline(ctx, q, filter, rs[0])
-		fmt.Fprintf(b, `<h2 class="subtitle mt-5 mb-2"><a href="%s"><strong>%s</strong></a>: <a href="%s">%s</a> %s via <code>%s</code></h2>`,
-			html.EscapeString(v.queueHref(filter)), html.EscapeString(name), v.InstanceHref(newest.ID), html.EscapeString(instanceName(newest)), statusTag(newest.Status), newest.WorkflowType)
+		fmt.Fprintf(b, `<h2 class="subtitle mt-5 mb-2"><a href="%s"><strong>%s</strong></a>: <a href="%s">%s</a> %s via <a href="%s"><code>%s</code></a></h2>`,
+			html.EscapeString(v.queueHref(filter)), html.EscapeString(name), v.preferredHref(newest), html.EscapeString(instanceName(newest)), statusTag(newest.Status),
+			html.EscapeString(v.queueHref(queueFilter{Workflow: string(newest.WorkflowType)})), newest.WorkflowType)
 		b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth is-narrow">`)
-		b.WriteString(`<thead><tr><th>Instance</th><th>Workflow</th><th>Revision</th><th>Business date</th><th>Status</th><th>Started</th><th>Completed</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
+		b.WriteString(`<thead><tr><th>Instance</th><th>What</th><th>Business date</th><th>Status</th><th>Started</th><th>Completed</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
 		for _, r := range rs {
-			rev := "—"
-			if r.Revision.ID != "" {
-				rev = fmt.Sprintf(`<a href="%s"><code>%s</code></a>`, html.EscapeString(v.queueHref(queueFilter{Workflow: string(r.WorkflowType), Revision: r.Revision.ID})), r.Revision.ID)
-			}
-			fmt.Fprintf(b, `<tr><td><strong>%s</strong></td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><div class="buttons is-flex-wrap-nowrap"><a class="button is-small is-link is-light" href="%s">View</a>%s</div></td></tr>`,
-				html.EscapeString(instanceName(r)), html.EscapeString(v.queueHref(queueFilter{Workflow: string(r.WorkflowType)})), r.WorkflowType, rev, r.BusinessDate,
-				statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID), v.cancelButton(r))
+			fmt.Fprintf(b, `<tr><td><a href="%s"><strong>%s</strong></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><div class="buttons is-flex-wrap-nowrap">%s%s</div></td></tr>`,
+				v.preferredHref(r), html.EscapeString(instanceName(r)), v.what(r), r.BusinessDate,
+				statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.instanceLink(r), v.cancelButton(r))
 		}
 		b.WriteString(`</tbody></table></div>`)
 	}
