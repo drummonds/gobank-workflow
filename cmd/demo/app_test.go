@@ -306,13 +306,17 @@ func TestPayingABatchStartsOnePaymentUnderItPerPayment(t *testing.T) {
 	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/simulation" {
 		t.Fatalf("pay: status %d location %q", res.StatusCode, res.Header.Get("Location"))
 	}
+	// The queue lists the batch alone; its payments are children, listed
+	// by their workflow and on the batch's page.
 	_, list := get(t, c, srv.URL+"/workflows/instances")
-	mustContain(t, list, "payment_batch", "<strong>PAY-0001</strong>", "<strong>PAY-0001/1</strong>", "<strong>PAY-0001/5</strong>")
-	if n := strings.Count(list, `<td><strong>PAY-0001`); n != 6 {
-		t.Fatalf("want a batch and 5 payments, got %d rows:\n%s", n, list)
+	mustContain(t, list, "payment_batch", "<strong>PAY-0001</strong>", `<td><span class="tag is-success">completed`)
+	if n := strings.Count(list, `<strong>PAY-0001`); n != 1 {
+		t.Fatalf("want the batch alone on the queue, got %d rows:\n%s", n, list)
 	}
-	if n := strings.Count(list, `<td><span class="tag is-success">completed`); n != 6 {
-		t.Fatalf("every instance should have completed, got %d:\n%s", n, list)
+	_, payments := get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	mustContain(t, payments, "<strong>PAY-0001/1</strong>", "<strong>PAY-0001/5</strong>")
+	if n := strings.Count(payments, `<td><span class="tag is-success">completed`); n != 5 {
+		t.Fatalf("every payment should have completed, got %d:\n%s", n, payments)
 	}
 	batch := instanceHref(t, list, "PAY-0001")
 	_, detail := get(t, c, srv.URL+"/"+batch)
@@ -329,15 +333,20 @@ func TestAFailedPaymentFailsTheBatchAndPayingAgainSettlesIt(t *testing.T) {
 	post(t, c, srv.URL+"/simulation/pay", url.Values{"fail_payment": {"3"}})
 	_, list := get(t, c, srv.URL+"/workflows/instances")
 	mustContain(t, list, "1 of 5 payments failed")
-	if n := strings.Count(list, `class="tag is-danger"`); n != 2 {
-		t.Fatalf("want the batch and payment 3 failed, got %d failed:\n%s", n, list)
+	if n := strings.Count(list, `class="tag is-danger"`); n != 1 {
+		t.Fatalf("want the batch failed, got %d failed:\n%s", n, list)
+	}
+	_, payments := get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	if n := strings.Count(payments, `class="tag is-danger"`); n != 1 {
+		t.Fatalf("want payment 3 failed, got %d failed:\n%s", n, payments)
 	}
 	_, sim := get(t, c, srv.URL+"/simulation")
 	mustContain(t, sim, "PAY-0001") // a failed batch keeps its reference
 	post(t, c, srv.URL+"/simulation/pay", nil)
 	_, list = get(t, c, srv.URL+"/workflows/instances")
-	if strings.Contains(list, `class="tag is-danger"`) {
-		t.Fatalf("paying again should settle the batch:\n%s", list)
+	_, payments = get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	if strings.Contains(list+payments, `class="tag is-danger"`) {
+		t.Fatalf("paying again should settle the batch:\n%s\n%s", list, payments)
 	}
 	if n := strings.Count(list, "<strong>PAY-0001</strong>"); n != 1 {
 		t.Fatalf("want one instance for PAY-0001, got %d", n)
