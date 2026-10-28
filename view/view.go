@@ -22,6 +22,7 @@ import (
 // Reader is the read side of a wf.Store the pages need.
 type Reader interface {
 	ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error)
+	CountMatching(ctx context.Context, f wf.RunFilter) (int, error)
 	CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error)
 	GetRun(ctx context.Context, id string) (*wf.RunRecord, error)
 	ListSteps(ctx context.Context, runID string) ([]wf.StepResult, error)

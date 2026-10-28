@@ -69,6 +69,11 @@ type Store interface {
 	// ListRuns returns the runs the filter matches, most recent first.
 	ListRuns(ctx context.Context, f RunFilter) ([]RunRecord, error)
 
+	// CountMatching returns how many runs the filter matches, whatever
+	// its order and paging (ActiveFirst, Offset, Limit): the queue's
+	// page count.
+	CountMatching(ctx context.Context, f RunFilter) (int, error)
+
 	// CountRuns returns, for every workflow type that has run, how many
 	// runs (instances) exist in each status.
 	CountRuns(ctx context.Context) (map[WorkflowType]RunCounts, error)

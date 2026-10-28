@@ -331,6 +331,14 @@ func (s *Store) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, e
 	return results, rows.Err()
 }
 
+// CountMatching counts the rows ListRuns would return before paging.
+func (s *Store) CountMatching(ctx context.Context, f wf.RunFilter) (int, error) {
+	where, args := runFilterSQL(f)
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_runs`+where, args...).Scan(&n)
+	return n, err
+}
+
 // runFilterSQL is the WHERE clause, if any, for a filter and its arguments.
 func runFilterSQL(f wf.RunFilter) (string, []any) {
 	var conds []string
