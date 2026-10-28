@@ -83,7 +83,7 @@ func TestAdvancingTheSimulationCreatesTimeOrderedInstances(t *testing.T) {
 	if !(i1 > 0 && i1 < i2 && i2 < i3) {
 		t.Fatalf("instances not most-recent-first: %d %d %d", i1, i2, i3)
 	}
-	if n := strings.Count(body, `">View</a>`); n != 3 {
+	if n := strings.Count(body, `</strong></a></td>`); n != 3 {
 		t.Fatalf("want 3 instance rows, got %d", n)
 	}
 	_, sim := get(t, c, srv.URL+"/simulation")
