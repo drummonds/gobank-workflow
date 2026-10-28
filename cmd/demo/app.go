@@ -74,6 +74,7 @@ type App struct {
 	current  wf.BusinessDate // next business date to process
 	failNext bool
 	shipped  [3]int // last version released through the pipeline
+	paid     int    // batches settled through the payment workflow
 	log      []string
 
 	page     *template.Template
@@ -121,6 +122,7 @@ func (a *App) reset() error {
 	a.current = a.opts.Start
 	a.failNext = false
 	a.shipped = [3]int{0, 1, 2}
+	a.paid = 0
 	a.log = nil
 	a.logf("simulation reset: %d accounts, %.2f%% p.a., starting %s", a.opts.Accounts, a.opts.Rate*100, a.current)
 	return nil
@@ -250,6 +252,11 @@ func (a *App) Handler(base string) http.Handler {
 	})
 	mux.HandleFunc("POST /simulation/release", func(w http.ResponseWriter, r *http.Request) {
 		a.Release(r.Context(), r.FormValue("fail_stage"))
+		redirectSim(w, r)
+	})
+	mux.HandleFunc("POST /simulation/pay", func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(r.FormValue("fail_payment"))
+		a.Pay(r.Context(), n)
 		redirectSim(w, r)
 	})
 	mux.HandleFunc("POST /simulation/fail", func(w http.ResponseWriter, r *http.Request) {

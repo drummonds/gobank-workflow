@@ -36,18 +36,26 @@ Runner.RunDaily(date)
 
 ## Workflow definitions
 
-Each definition is a kind of workflow the engine can run; each run recorded in the store is an instance of one. `Definitions` is the registry in code: it starts empty and each host program appends the workflows it runs, so its pages show those and no others. `Store.CountRuns` reports how many instances each definition has in every state. The demo app registers these two:
+Each definition is a kind of workflow the engine can run; each run recorded in the store is an instance of one. `Definitions` is the registry in code: it starts empty and each host program appends the workflows it runs, so its pages show those and no others. `Store.CountRuns` reports how many instances each definition has in every state. The demo app registers these four:
 
 | Type | Description | Instance key | Steps |
 |---|---|---|---|
 | `daily_update` | End-of-day processing for one business date: the `DayProcessor` runs over every account | business date | `end_of_day`, one per account |
 | `release` | Ship a new version through the release pipeline; a failed stage stops the release and the next run resumes from it | version | check → bump → changelog → tag → push origin → push mirror → verify install → deploy docs |
+| `payment_batch` | Pay a file of five payments; each payment is a child instance under the batch, which settles once they have all finished and fails if any failed | batch reference (`PAY-0001`) | receive → start payments (sub-process, one `payment` per payment) → settle |
+| `payment` | Pay one payment of a batch out of the paying account | batch reference/position (`PAY-0001/3`) | check funds → post |
+
+The batch and its payments are a master–detail pair: the batch's instance page lists its payments as children with their state, and each payment's page links up to its batch.
 
 The diagrams below show only how the steps flow; they are generated from the registry by `cmd/defd2` and rendered with d2 at docs build time, so they cannot drift from the code. Each step is a link to the code that performs it. The demo app shows the same pictures, colours an instance's steps by state, and carries the detail in tables.
 
 ![daily_update definition](definitions/daily_update.svg)
 
 ![release definition](definitions/release.svg)
+
+![payment_batch definition](definitions/payment_batch.svg)
+
+![payment definition](definitions/payment.svg)
 
 A definition is a sequence of steps; an instance is one run of it, identified within its type by the instance key, and each step recorded against the instance is one of the definition's steps. A retry is a new attempt at the same instance, not a new instance: `Runner.RunDaily` reprocesses every account, `Runner.RunPipeline` resumes from the failed stage.
 
@@ -85,13 +93,13 @@ The [demo app](app/) is the same Go program as `task demo` serves on a workstati
 
 | Menu | Page | Shows |
 |---|---|---|
-| Workflows → Instances | `workflows/instances` | every run in the store, most recent first; each opens its state and the per-account steps |
+| Workflows → Instances | `workflows/instances` | the top-level runs in the store, active first then most recent; a child run is on its parent's page unless the filter names its purpose, workflow or key; each opens its state and the per-account steps |
 | Workflows → Definitions | `workflows/definitions` | the `Definitions` registry with instance counts by state; each opens its instances |
-| Simulation | `simulation` | the driver: advance 1, 7 or 30 business days, arm a failure for the next day, ship the next version through the release pipeline (optionally failing at a chosen stage), reset |
+| Simulation | `simulation` | the driver: advance 1, 7 or 30 business days, arm a failure for the next day, ship the next version through the release pipeline (optionally failing at a chosen stage), pay the next payment batch (optionally with one payment failing to post), reset |
 | DB Explorer | `internal/explorer` | tables, columns, indexes and rows of the live schema, including `schema_migrations` |
 | About | `about` | versions, schema version expected and applied, runtime |
 
-A failed day stays current and a failed release keeps its version: the next advance or ship retries the same instance, so there is always one instance per business date and one per version.
+A failed day stays current, a failed release keeps its version and a failed batch keeps its reference: the next advance, ship or pay retries the same instance, so there is always one instance per business date, one per version and one per batch. Paying a batch again retries its failed payments first, then settles the batch.
 
 ## Demos
 

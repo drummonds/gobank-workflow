@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/gobank-workflow/cmd/demo/definitions"
 )
 
 // lockedStore is the store as the workflow views read it: under the app's
@@ -21,6 +22,12 @@ func (s lockedStore) ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunReco
 	s.a.mu.Lock()
 	defer s.a.mu.Unlock()
 	return s.a.store.ListRuns(ctx, f)
+}
+
+func (s lockedStore) CountMatching(ctx context.Context, f wf.RunFilter) (int, error) {
+	s.a.mu.Lock()
+	defer s.a.mu.Unlock()
+	return s.a.store.CountMatching(ctx, f)
 }
 
 func (s lockedStore) CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error) {
@@ -44,17 +51,30 @@ func (s lockedStore) ListSteps(ctx context.Context, runID string) ([]wf.StepResu
 // stepsPerPage is how many account steps one page of an instance shows.
 const stepsPerPage = 50
 
-// detail is what the demo adds to an instance page: the accounts an
-// end-of-day run processed, a page at a time (?page=N, clamped), and the
-// link to its step rows in the DB explorer.
+// detail is what the demo adds to an instance page: what a batch or a
+// payment is about, the accounts an end-of-day run processed, a page at
+// a time (?page=N, clamped), and the link to its step rows in the DB
+// explorer.
 func (a *App) detail(r *http.Request, run wf.RunRecord, steps []wf.StepResult, href string) template.HTML {
+	var b strings.Builder
+	switch run.WorkflowType {
+	case definitions.BatchType:
+		var total int64
+		for _, p := range a.paymentsOf(run.Key) {
+			total += p.Amount
+		}
+		fmt.Fprintf(&b, `<p>%d payments, %s in total.</p>`, paymentsPerBatch, money(total, -2))
+	case definitions.PaymentType:
+		if p, ok := a.paymentOf(run.Key); ok {
+			fmt.Fprintf(&b, `<p>Payment %d of %s: %s from <code>%s</code>.</p>`, p.N, html.EscapeString(p.Batch), money(p.Amount, -2), html.EscapeString(p.Account))
+		}
+	}
 	var accounts []wf.StepResult
 	for _, s := range steps {
 		if s.AccountID != "" {
 			accounts = append(accounts, s)
 		}
 	}
-	var b strings.Builder
 	if len(accounts) > 0 {
 		var interest int64
 		for _, s := range accounts {

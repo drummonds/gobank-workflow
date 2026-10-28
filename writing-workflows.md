@@ -31,7 +31,8 @@ see it. Declare it next to the code that runs it and append it to
 `Definitions` in an `init`, as gobank-deploy does. The registry starts
 empty, so a host's pages show only the workflows it runs: the library
 declares `DailyUpdate` beside `RunDaily` and leaves registering it to
-gobank; the demo app registers that and its own release pipeline.
+gobank; the demo app registers that, its own release pipeline, and a
+payment batch with its payments as children.
 
 | Field | What it is | Rule |
 |---|---|---|
@@ -156,7 +157,11 @@ on the child. Waiting is a later stage's `Until`, through the existing
 park-and-poll: `CountDescendants` by status when the rule is "every child
 done", or the host's own condition when it is something of the domain,
 such as "every photo receipted". The instance page lists a run's children
-with their status, and a child's page links up to its parent.
+with their status, and a child's page links up to its parent. The demo's
+payment batch (`cmd/demo/payments.go`) is the pattern end to end: `start
+payments` starts one child per payment, `settle` waits until none is active
+and fails the batch if any failed, and one press of *Pay* is the host's tick
+run until the batch settles.
 
 ## What the store records and what the host supplies
 

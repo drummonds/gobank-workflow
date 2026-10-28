@@ -9,6 +9,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"html"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 // Reader is the read side of a wf.Store the pages need.
 type Reader interface {
 	ListRuns(ctx context.Context, f wf.RunFilter) ([]wf.RunRecord, error)
+	CountMatching(ctx context.Context, f wf.RunFilter) (int, error)
 	CountRuns(ctx context.Context) (map[wf.WorkflowType]wf.RunCounts, error)
 	GetRun(ctx context.Context, id string) (*wf.RunRecord, error)
 	ListSteps(ctx context.Context, runID string) ([]wf.StepResult, error)
@@ -49,6 +51,12 @@ type Views struct {
 	// the host alone knows about its workflow type. href is the instance's
 	// own link, for paging and the like.
 	Detail func(r *http.Request, run wf.RunRecord, steps []wf.StepResult, href string) template.HTML
+	// Specific, if set, is the host's own page for what an instance is
+	// about (the batch, the order), preferred over the generic instance
+	// page wherever an instance is linked: the queue and a parent's list of
+	// children name the instance with it and offer the instance page
+	// beside. "" means the host has no page for that run.
+	Specific func(run wf.RunRecord) string
 	// Cancel, if set, ends an instance cancelled (wf.Store's CancelRun):
 	// the queue then offers it on every active instance but running.
 	Cancel func(ctx context.Context, id string) error
@@ -145,6 +153,40 @@ func (v *Views) cancellable(run wf.RunRecord) bool {
 
 // InstanceHref is the link to one instance's page.
 func (v *Views) InstanceHref(id string) string { return v.Base + "instances/" + id }
+
+// preferredHref is where an instance is linked to: the host's own page
+// for it when there is one, else its instance page.
+func (v *Views) preferredHref(r wf.RunRecord) string {
+	if v.Specific != nil {
+		if href := v.Specific(r); href != "" {
+			return href
+		}
+	}
+	return v.InstanceHref(r.ID)
+}
+
+// instanceLink is the generic instance page offered beside the host's own
+// page; nothing when the instance was linked there already.
+func (v *Views) instanceLink(r wf.RunRecord) string {
+	if v.preferredHref(r) == v.InstanceHref(r.ID) {
+		return ""
+	}
+	return fmt.Sprintf(`<a class="button is-small is-link is-light" href="%s">Instance</a>`, v.InstanceHref(r.ID))
+}
+
+// what names what an instance ran: its workflow type and the last two
+// characters of its revision, ship-3f, linked to the definition when the
+// build has it.
+func (v *Views) what(r wf.RunRecord) string {
+	name := string(r.WorkflowType)
+	if n := len(r.Revision.ID); n >= 2 {
+		name += "-" + r.Revision.ID[n-2:]
+	}
+	if v.definition(r.WorkflowType) == nil {
+		return "<code>" + html.EscapeString(name) + "</code>"
+	}
+	return fmt.Sprintf(`<a href="%s"><code>%s</code></a>`, v.DefinitionHref(r.WorkflowType), html.EscapeString(name))
+}
 
 // DefinitionHref is the link to one definition's page.
 func (v *Views) DefinitionHref(t wf.WorkflowType) string { return v.Base + "definitions/" + string(t) }

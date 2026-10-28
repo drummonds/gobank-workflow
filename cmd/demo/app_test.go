@@ -83,7 +83,7 @@ func TestAdvancingTheSimulationCreatesTimeOrderedInstances(t *testing.T) {
 	if !(i1 > 0 && i1 < i2 && i2 < i3) {
 		t.Fatalf("instances not most-recent-first: %d %d %d", i1, i2, i3)
 	}
-	if n := strings.Count(body, `">View</a>`); n != 3 {
+	if n := strings.Count(body, `</strong></a></td>`); n != 3 {
 		t.Fatalf("want 3 instance rows, got %d", n)
 	}
 	_, sim := get(t, c, srv.URL+"/simulation")
@@ -282,4 +282,85 @@ func TestInstanceStepsArePagedInAccountOrder(t *testing.T) {
 	// Out of range clamps to the last page rather than showing nothing.
 	_, beyond := get(t, c, srv.URL+"/"+path+"?page=9")
 	mustContain(t, beyond, "steps 101–120 of 120")
+}
+
+// instanceHref is the instance page linked from the instance's name on a
+// page: the name is the link in a parent's list of children, and the
+// row's View button follows it in the queue.
+func instanceHref(t *testing.T, body, name string) string {
+	t.Helper()
+	strong := `<strong>` + regexp.QuoteMeta(name) + `</strong>`
+	if m := regexp.MustCompile(`href="(workflows/instances/[0-9a-f-]+)">` + strong).FindStringSubmatch(body); m != nil {
+		return m[1]
+	}
+	if m := regexp.MustCompile(strong + `.*?href="(workflows/instances/[0-9a-f-]+)"`).FindStringSubmatch(body); m != nil {
+		return m[1]
+	}
+	t.Fatalf("no instance link for %s:\n%s", name, body)
+	return ""
+}
+
+func TestPayingABatchStartsOnePaymentUnderItPerPayment(t *testing.T) {
+	srv, c := newTestServer(t)
+	res := post(t, c, srv.URL+"/simulation/pay", nil)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/simulation" {
+		t.Fatalf("pay: status %d location %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	// The queue lists the batch alone; its payments are children, listed
+	// by their workflow and on the batch's page.
+	_, list := get(t, c, srv.URL+"/workflows/instances")
+	mustContain(t, list, "payment_batch", "<strong>PAY-0001</strong>", `<td><span class="tag is-success">completed`)
+	if n := strings.Count(list, `<strong>PAY-0001`); n != 1 {
+		t.Fatalf("want the batch alone on the queue, got %d rows:\n%s", n, list)
+	}
+	_, payments := get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	mustContain(t, payments, "<strong>PAY-0001/1</strong>", "<strong>PAY-0001/5</strong>")
+	if n := strings.Count(payments, `<td><span class="tag is-success">completed`); n != 5 {
+		t.Fatalf("every payment should have completed, got %d:\n%s", n, payments)
+	}
+	batch := instanceHref(t, list, "PAY-0001")
+	_, detail := get(t, c, srv.URL+"/"+batch)
+	mustContain(t, detail, "receive", "start payments", "settle", "Children", "PAY-0001/1", "PAY-0001/5", "5 payments", "1,500.00")
+	payment := instanceHref(t, detail, "PAY-0001/3")
+	_, child := get(t, c, srv.URL+"/"+payment)
+	mustContain(t, child, "payment", "check funds", "post", "Parent", `href="`+batch+`"`, "300.00", "acct-0002")
+	_, sim := get(t, c, srv.URL+"/simulation")
+	mustContain(t, sim, "PAY-0002") // next batch to pay
+}
+
+func TestAFailedPaymentFailsTheBatchAndPayingAgainSettlesIt(t *testing.T) {
+	srv, c := newTestServer(t)
+	post(t, c, srv.URL+"/simulation/pay", url.Values{"fail_payment": {"3"}})
+	_, list := get(t, c, srv.URL+"/workflows/instances")
+	mustContain(t, list, "1 of 5 payments failed")
+	if n := strings.Count(list, `class="tag is-danger"`); n != 1 {
+		t.Fatalf("want the batch failed, got %d failed:\n%s", n, list)
+	}
+	_, payments := get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	if n := strings.Count(payments, `class="tag is-danger"`); n != 1 {
+		t.Fatalf("want payment 3 failed, got %d failed:\n%s", n, payments)
+	}
+	_, sim := get(t, c, srv.URL+"/simulation")
+	mustContain(t, sim, "PAY-0001") // a failed batch keeps its reference
+	post(t, c, srv.URL+"/simulation/pay", nil)
+	_, list = get(t, c, srv.URL+"/workflows/instances")
+	_, payments = get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	if strings.Contains(list+payments, `class="tag is-danger"`) {
+		t.Fatalf("paying again should settle the batch:\n%s\n%s", list, payments)
+	}
+	if n := strings.Count(list, "<strong>PAY-0001</strong>"); n != 1 {
+		t.Fatalf("want one instance for PAY-0001, got %d", n)
+	}
+	_, detail := get(t, c, srv.URL+"/"+instanceHref(t, list, "PAY-0001"))
+	mustContain(t, detail, "3 of 3 stages completed")
+}
+
+func TestPaymentsDebitTheAccountsTheNextDayProcesses(t *testing.T) {
+	srv, c := newTestServer(t)
+	post(t, c, srv.URL+"/simulation/pay", nil)
+	post(t, c, srv.URL+"/simulation/advance", url.Values{"days": {"1"}})
+	_, list := get(t, c, srv.URL+"/workflows/instances")
+	_, detail := get(t, c, srv.URL+"/"+instanceHref(t, list, "2026-01-01"))
+	// acct-0000 paid 100.00 and 400.00 (payments 1 and 4 of 5 over 3 accounts).
+	mustContain(t, detail, "9,500.00")
 }

@@ -94,6 +94,18 @@ func (a *App) simulationHTML(ctx context.Context) string {
 	}
 	fmt.Fprintf(&b, `</select></div></div><div class="control"><button class="button is-primary">Ship %s</button></div></form>`, next)
 	b.WriteString(`<p>A failed release keeps its version: shipping again resumes that instance from the failed stage.</p>`)
+
+	bc := counts[definitions.BatchType]
+	batch := a.NextBatch()
+	b.WriteString(`<h2 class="subtitle mt-5">Payment batch</h2>`)
+	fmt.Fprintf(&b, `<p>Next batch to pay: <strong>%s</strong>, %d payments. %d settled, %d failed.</p>`, batch, paymentsPerBatch, bc[wf.StatusCompleted], bc[wf.StatusFailed])
+	b.WriteString(`<form method="post" action="simulation/pay" class="field has-addons">`)
+	b.WriteString(`<div class="control"><div class="select"><select name="fail_payment"><option value="">every payment posts</option>`)
+	for n := 1; n <= paymentsPerBatch; n++ {
+		fmt.Fprintf(&b, `<option value="%d">payment %d fails to post</option>`, n, n)
+	}
+	fmt.Fprintf(&b, `</select></div></div><div class="control"><button class="button is-primary">Pay %s</button></div></form>`, batch)
+	b.WriteString(`<p>A batch starts one payment instance per payment and settles once they have all finished; a failed payment fails the batch. Paying again retries the failed payment and settles the same batch.</p>`)
 	b.WriteString(`</div><div class="column">`)
 	b.WriteString(`<h2 class="subtitle">Log</h2><pre class="log">`)
 	start := max(0, len(log)-20)

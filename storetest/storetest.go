@@ -191,8 +191,9 @@ func Revisions(t *testing.T, s wf.Store) {
 
 // FilteredRuns checks ListRuns under a RunFilter: each field narrows the
 // runs, fields combine, the newest come first (active before completed
-// when asked), and Offset and Limit page them. s must
-// start empty.
+// when asked), and Offset and Limit page them; and CountMatching counts
+// what the filter matches, whatever its order and paging. s must start
+// empty.
 func FilteredRuns(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -241,6 +242,25 @@ func FilteredRuns(t *testing.T, s wf.Store) {
 		}
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		f    wf.RunFilter
+		want int
+	}{
+		{"no filter counts every run", wf.RunFilter{}, 5},
+		{"types", wf.RunFilter{Types: []wf.WorkflowType{"ship"}}, 3},
+		{"order, offset and limit do not count", wf.RunFilter{ActiveFirst: true, Offset: 1, Limit: 2}, 5},
+		{"fields combine", wf.RunFilter{Types: []wf.WorkflowType{"ship"}, Statuses: []wf.RunStatus{wf.StatusCompleted, wf.StatusWaiting}}, 2},
+		{"nothing matches", wf.RunFilter{KeyContains: "%"}, 0},
+	} {
+		n, err := s.CountMatching(ctx, c.f)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if n != c.want {
+			t.Errorf("%s: counted %d, want %d", c.name, n, c.want)
 		}
 	}
 }
@@ -353,8 +373,9 @@ func Cancelled(t *testing.T, s wf.Store) {
 }
 
 // Children checks the parent link: ParentID round-trips, ListRuns by
-// ParentID is a run's direct children, and CountDescendants counts every
-// run under it, at any depth, by status. s must start empty.
+// ParentID is a run's direct children, by TopLevel the runs with no
+// parent, and CountDescendants counts every run under it, at any depth,
+// by status. s must start empty.
 func Children(t *testing.T, s wf.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -400,6 +421,15 @@ func Children(t *testing.T, s wf.Store) {
 	}
 	if got := ids(wf.RunFilter{ParentID: "other"}); len(got) != 0 {
 		t.Fatalf("other has no children, got %v", got)
+	}
+	if got := ids(wf.RunFilter{TopLevel: true}); !slices.Equal(got, []string{"other", "batch"}) {
+		t.Fatalf("top level = %v, want the runs with no parent, newest first", got)
+	}
+	if got := ids(wf.RunFilter{TopLevel: true, KeyContains: "b-1"}); !slices.Equal(got, []string{"batch"}) {
+		t.Fatalf("top level narrows with the other fields, got %v", got)
+	}
+	if got := ids(wf.RunFilter{TopLevel: true, ParentID: "batch"}); len(got) != 0 {
+		t.Fatalf("top level and a parent match nothing, got %v", got)
 	}
 	for id, want := range map[string]wf.RunCounts{
 		"batch": {wf.StatusCompleted: 2, wf.StatusRunning: 1, wf.StatusFailed: 1},

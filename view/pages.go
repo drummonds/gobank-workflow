@@ -108,6 +108,13 @@ func (v *Views) parentLink(ctx context.Context, id string) string {
 	return fmt.Sprintf(`<a href="%s">%s %s</a>`, v.InstanceHref(parent.ID), parent.WorkflowType, html.EscapeString(instanceName(*parent)))
 }
 
+// revisionLink is the run's revision, leading to the queue of the
+// instances that ran it.
+func (v *Views) revisionLink(run wf.RunRecord) string {
+	return fmt.Sprintf(`<a href="%s"><code>%s</code></a>`,
+		html.EscapeString(v.queueHref(queueFilter{Workflow: string(run.WorkflowType), Revision: run.Revision.ID})), html.EscapeString(run.Revision.ID))
+}
+
 // childrenHTML lists the runs started under this one, oldest first: the
 // order they were started. Nothing is written for a run with none.
 func (v *Views) childrenHTML(ctx context.Context, b *strings.Builder, id string) {
@@ -121,10 +128,10 @@ func (v *Views) childrenHTML(ctx context.Context, b *strings.Builder, id string)
 	}
 	slices.Reverse(children)
 	b.WriteString(`<h2 class="subtitle">Children</h2>`)
-	b.WriteString(`<table class="table is-striped is-fullwidth is-narrow"><thead><tr><th>Workflow</th><th>Instance</th><th>Status</th><th>Started</th><th>Took</th></tr></thead><tbody>`)
+	b.WriteString(`<table class="table is-striped is-fullwidth is-narrow"><thead><tr><th>Instance</th><th>What</th><th>Status</th><th>Started</th><th>Took</th><th></th></tr></thead><tbody>`)
 	for _, c := range children {
-		fmt.Fprintf(b, `<tr><td><code>%s</code></td><td><a href="%s"><strong>%s</strong></a></td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			c.WorkflowType, v.InstanceHref(c.ID), html.EscapeString(instanceName(c)), statusTag(c.Status), stamp(c.StartedAt), runTook(c))
+		fmt.Fprintf(b, `<tr><td><a href="%s"><strong>%s</strong></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			v.preferredHref(c), html.EscapeString(instanceName(c)), v.what(c), statusTag(c.Status), stamp(c.StartedAt), runTook(c), v.instanceLink(c))
 	}
 	b.WriteString(`</tbody></table>`)
 }
@@ -186,9 +193,9 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 	case run.Revision.ID == "":
 		b.WriteString(`<tr><th>Revision</th><td>— <span class="has-text-grey">(recorded before revisions)</span></td></tr>`)
 	case current:
-		fmt.Fprintf(&b, `<tr><th>Revision</th><td><code>%s</code> <span class="has-text-grey">(the current revision)</span></td></tr>`, run.Revision.ID)
+		fmt.Fprintf(&b, `<tr><th>Revision</th><td>%s <span class="has-text-grey">(the current revision)</span></td></tr>`, v.revisionLink(run))
 	default:
-		fmt.Fprintf(&b, `<tr><th>Revision</th><td><code>%s</code> <span class="tag is-warning is-light">not the current revision</span> <span class="has-text-grey">the code now runs a different step list</span></td></tr>`, run.Revision.ID)
+		fmt.Fprintf(&b, `<tr><th>Revision</th><td>%s <span class="tag is-warning is-light">not the current revision</span> <span class="has-text-grey">the code now runs a different step list</span></td></tr>`, v.revisionLink(run))
 	}
 	var ran []wf.Step
 	if def != nil {

@@ -70,9 +70,13 @@ func (v *Views) queueHref(q queueFilter) string {
 
 // storeFilter is the filter as the store takes it, without the status and
 // limit the queue sets per query; false when nothing can match, as for a
-// purpose no definition serves.
+// purpose no definition serves. The queue lists the top-level instances,
+// a child being read on its parent's page, unless the filter names a
+// purpose, workflow, revision or key: then the operator has asked for
+// children by name and they are listed too.
 func (v *Views) storeFilter(q queueFilter) (wf.RunFilter, bool) {
-	f := wf.RunFilter{KeyContains: q.Key, Revision: q.Revision}
+	f := wf.RunFilter{KeyContains: q.Key, Revision: q.Revision,
+		TopLevel: q.Purpose == "" && q.Workflow == "" && q.Revision == "" && q.Key == ""}
 	if q.Purpose != "" {
 		f.Types = []wf.WorkflowType{} // set, so an unserved purpose matches nothing
 		for _, d := range v.Definitions {
@@ -99,46 +103,25 @@ func (v *Views) storeFilter(q queueFilter) (wf.RunFilter, bool) {
 
 // queueRuns is one page of the queue: the active instances, then the
 // completed, newest first in each; or, when a status is asked for, the
-// newest in it. more says a later page has instances.
-func (v *Views) queueRuns(ctx context.Context, q queueFilter) (runs []wf.RunRecord, more bool, err error) {
+// newest in it. total is how many instances the queue has over every page.
+func (v *Views) queueRuns(ctx context.Context, q queueFilter) (runs []wf.RunRecord, total int, err error) {
 	f, ok := v.storeFilter(q)
 	if !ok {
-		return nil, false, nil
+		return nil, 0, nil
 	}
 	if q.Status != "" {
 		f.Statuses = []wf.RunStatus{wf.RunStatus(q.Status)}
 	}
 	f.ActiveFirst = q.Status == ""
-	f.Offset, f.Limit = (max(q.Page, 1)-1)*q.n(), q.n()+1
+	if total, err = v.Store.CountMatching(ctx, f); err != nil {
+		return nil, 0, err
+	}
+	f.Offset, f.Limit = (max(q.Page, 1)-1)*q.n(), q.n()
 	runs, err = v.Store.ListRuns(ctx, f)
-	if len(runs) > q.n() {
-		return runs[:q.n()], true, err
-	}
-	return runs, false, err
+	return runs, total, err
 }
 
-// headline is a group's newest instance under the filter, on whatever page.
-func (v *Views) headline(ctx context.Context, q queueFilter, group queueFilter, fallback wf.RunRecord) wf.RunRecord {
-	if group.Purpose != "" {
-		q.Purpose = group.Purpose
-	} else {
-		q.Workflow = group.Workflow
-	}
-	f, ok := v.storeFilter(q)
-	if !ok {
-		return fallback
-	}
-	if q.Status != "" {
-		f.Statuses = []wf.RunStatus{wf.RunStatus(q.Status)}
-	}
-	f.Limit = 1
-	if runs, err := v.Store.ListRuns(ctx, f); err == nil && len(runs) == 1 {
-		return runs[0]
-	}
-	return fallback
-}
-
-// purposeOf is the group a run is queued under: its definition's purpose,
+// purposeOf is the purpose a run is queued under: its definition's purpose,
 // or its type when the definition has none or is not in this build.
 func (v *Views) purposeOf(r wf.RunRecord) (name string, filter queueFilter) {
 	if d := v.definition(r.WorkflowType); d != nil && d.Purpose.Name != "" {
@@ -150,7 +133,7 @@ func (v *Views) purposeOf(r wf.RunRecord) (name string, filter queueFilter) {
 func (v *Views) instancesHTML(r *http.Request) string {
 	q := parseQueueFilter(r)
 	var b strings.Builder
-	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The active work — running, waiting and failed — then the newest completed, by purpose</p>`)
+	b.WriteString(`<h1 class="title">Workflow instances</h1><p class="subtitle">The active work — running, waiting and failed — then the newest completed; a child instance is on its parent's page unless the filter names its purpose, workflow or key</p>`)
 	v.filterForm(&b, q)
 	if q.Workflow != "" {
 		if def := v.definition(wf.WorkflowType(q.Workflow)); def != nil {
@@ -223,11 +206,11 @@ func (v *Views) filterForm(b *strings.Builder, q queueFilter) {
 	b.WriteString(`</form>`)
 }
 
-// queueHTML writes the queue under q, one table per purpose, each headed by
-// the purpose's newest instance.
+// queueHTML writes the queue under q: one table, each row naming its
+// purpose, then the page navigation when there is more than one page.
 func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter) {
 	q.Page = max(q.Page, 1)
-	runs, more, err := v.queueRuns(ctx, q)
+	runs, total, err := v.queueRuns(ctx, q)
 	if err != nil {
 		errorNote(b, err)
 		return
@@ -244,49 +227,63 @@ func (v *Views) queueHTML(ctx context.Context, b *strings.Builder, q queueFilter
 		}
 		return
 	}
-	var order []string
-	groups := map[string][]wf.RunRecord{}
+	b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth is-narrow">`)
+	b.WriteString(`<thead><tr><th>Instance</th><th>Purpose</th><th>What</th><th>Business date</th><th>Status</th><th>Started</th><th>Completed</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
 	for _, r := range runs {
-		name, _ := v.purposeOf(r)
-		if groups[name] == nil {
-			order = append(order, name)
-		}
-		groups[name] = append(groups[name], r)
+		name, filter := v.purposeOf(r)
+		fmt.Fprintf(b, `<tr><td><a href="%s"><strong>%s</strong></a></td><td><a href="%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><div class="buttons is-flex-wrap-nowrap">%s%s</div></td></tr>`,
+			v.preferredHref(r), html.EscapeString(instanceName(r)), html.EscapeString(v.queueHref(filter)), html.EscapeString(name), v.what(r), r.BusinessDate,
+			statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.instanceLink(r), v.cancelButton(r))
 	}
-	for _, name := range order {
-		rs := groups[name]
-		_, filter := v.purposeOf(rs[0])
-		newest := v.headline(ctx, q, filter, rs[0])
-		fmt.Fprintf(b, `<h2 class="subtitle mt-5 mb-2"><a href="%s"><strong>%s</strong></a>: <a href="%s">%s</a> %s via <code>%s</code></h2>`,
-			html.EscapeString(v.queueHref(filter)), html.EscapeString(name), v.InstanceHref(newest.ID), html.EscapeString(instanceName(newest)), statusTag(newest.Status), newest.WorkflowType)
-		b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth is-narrow">`)
-		b.WriteString(`<thead><tr><th>Instance</th><th>Workflow</th><th>Revision</th><th>Business date</th><th>Status</th><th>Started</th><th>Completed</th><th>Took</th><th>Error</th><th></th></tr></thead><tbody>`)
-		for _, r := range rs {
-			rev := "—"
-			if r.Revision.ID != "" {
-				rev = fmt.Sprintf(`<a href="%s"><code>%s</code></a>`, html.EscapeString(v.queueHref(queueFilter{Workflow: string(r.WorkflowType), Revision: r.Revision.ID})), r.Revision.ID)
-			}
-			fmt.Fprintf(b, `<tr><td><strong>%s</strong></td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td><td><div class="buttons is-flex-wrap-nowrap"><a class="button is-small is-link is-light" href="%s">View</a>%s</div></td></tr>`,
-				html.EscapeString(instanceName(r)), html.EscapeString(v.queueHref(queueFilter{Workflow: string(r.WorkflowType)})), r.WorkflowType, rev, r.BusinessDate,
-				statusTag(r.Status), stamp(r.StartedAt), stamp(r.CompletedAt), runTook(r), html.EscapeString(r.Error), v.InstanceHref(r.ID), v.cancelButton(r))
-		}
-		b.WriteString(`</tbody></table></div>`)
+	b.WriteString(`</tbody></table></div>`)
+	v.pageNav(b, q, (total+q.n()-1)/q.n())
+}
+
+// pageNav writes the page navigation when there are more pages than one,
+// all in one group: Previous, the page links pagesAround gives with an
+// ellipsis over each gap, Next.
+func (v *Views) pageNav(b *strings.Builder, q queueFilter, last int) {
+	if last <= 1 {
+		return
 	}
-	if q.Page > 1 || more {
-		at := func(page int) string {
-			p := q
-			p.Page = page
-			return html.EscapeString(v.queueHref(p))
-		}
-		b.WriteString(`<nav class="pagination is-small mt-4" role="navigation" aria-label="queue pages">`)
-		if q.Page > 1 {
-			fmt.Fprintf(b, `<a class="pagination-previous" href="%s">Previous</a>`, at(q.Page-1))
-		}
-		if more {
-			fmt.Fprintf(b, `<a class="pagination-next" href="%s">Next</a>`, at(q.Page+1))
-		}
-		fmt.Fprintf(b, `<ul class="pagination-list"><li><a class="pagination-link is-current" aria-current="page">%d</a></li></ul></nav>`, q.Page)
+	at := func(page int) string {
+		p := q
+		p.Page = page
+		return html.EscapeString(v.queueHref(p))
 	}
+	b.WriteString(`<nav class="pagination is-small mt-4" role="navigation" aria-label="queue pages"><ul class="pagination-list">`)
+	if q.Page > 1 {
+		fmt.Fprintf(b, `<li><a class="pagination-link" href="%s">Previous</a></li>`, at(q.Page-1))
+	}
+	prev := 0
+	for _, page := range pagesAround(q.Page, last) {
+		if page > prev+1 {
+			b.WriteString(`<li><span class="pagination-ellipsis">…</span></li>`)
+		}
+		if page == q.Page {
+			fmt.Fprintf(b, `<li><a class="pagination-link is-current" aria-current="page">%d</a></li>`, page)
+		} else {
+			fmt.Fprintf(b, `<li><a class="pagination-link" href="%s">%d</a></li>`, at(page), page)
+		}
+		prev = page
+	}
+	if q.Page < last {
+		fmt.Fprintf(b, `<li><a class="pagination-link" href="%s">Next</a></li>`, at(q.Page+1))
+	}
+	b.WriteString(`</ul></nav>`)
+}
+
+// pagesAround is the pages linked around the current one, of last: the
+// first, the current with its neighbours, and the last, ascending without
+// repeats — at most five.
+func pagesAround(current, last int) []int {
+	var pages []int
+	for _, p := range []int{1, current - 1, current, current + 1, last} {
+		if p >= 1 && p <= last && (len(pages) == 0 || p > pages[len(pages)-1]) {
+			pages = append(pages, p)
+		}
+	}
+	return pages
 }
 
 // cancelButton is the queue row's Cancel, a POST, when the run can be cancelled.
