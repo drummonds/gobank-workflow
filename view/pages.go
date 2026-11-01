@@ -346,6 +346,58 @@ func firstSteps(steps []wf.Step) string {
 	return fmt.Sprintf(`%s … <span class="has-text-grey">(%d steps)</span>`, html.EscapeString(strings.Join(names[:shownSteps], " → ")), len(names))
 }
 
+// dotColour is the colour of a step's dot in a Progress row: green
+// completed, red failed, amber waiting or running, yellow cancelled,
+// white not run.
+func dotColour(status wf.RunStatus, recorded bool) string {
+	switch {
+	case !recorded:
+		return "#ffffff"
+	case status == wf.StatusCompleted:
+		return "#48c78e"
+	case status == wf.StatusFailed:
+		return "#f14668"
+	case status == wf.StatusCancelled:
+		return "#ffe08a"
+	case status == wf.StatusWaiting || status == wf.StatusRunning:
+		return "#ffb000"
+	}
+	return "#ffffff"
+}
+
+// Progress is a run's steps as a row of dots, for a host's own page about
+// the thing the run is about: one dot per step in the order the run's
+// revision recorded, coloured by the step's latest state and titled with
+// its name and status, the row linking to the instance page. Inline
+// spans, no SVG, so it sits in a table cell or a line of text.
+func (v *Views) Progress(run wf.RunRecord, steps []wf.StepResult) template.HTML {
+	var names []string
+	if def := v.definition(run.WorkflowType); def != nil {
+		for _, st := range def.StepsFor(run.Revision) {
+			names = append(names, st.Name)
+		}
+	} else {
+		names = run.Revision.Steps
+	}
+	byName := map[string]wf.StepResult{}
+	for _, s := range latest(steps) {
+		byName[s.StepName] = s
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<a class="dots" href="%s">`, v.InstanceHref(run.ID))
+	for _, name := range names {
+		st, recorded := byName[name]
+		status := "not run"
+		if recorded {
+			status = string(st.Status)
+		}
+		fmt.Fprintf(&b, `<span class="dot" title="%s: %s" style="display:inline-block;width:.75em;height:.75em;margin-right:.2em;border-radius:50%%;border:1px solid #7a7a7a;background:%s"></span>`,
+			html.EscapeString(name), status, dotColour(st.Status, recorded))
+	}
+	b.WriteString(`</a>`)
+	return template.HTML(b.String())
+}
+
 func (v *Views) definitionsHTML(ctx context.Context) template.HTML {
 	counts, err := v.Store.CountRuns(ctx)
 	var b strings.Builder

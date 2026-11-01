@@ -661,3 +661,60 @@ func TestDefinitionsListTheirRoleAndTheirFirstFewSteps(t *testing.T) {
 		t.Fatalf("four or fewer steps are shown in full; more are cut after the fourth:\n%s", body)
 	}
 }
+
+// Progress is a run's steps as a row of dots a host places on its own page
+// about the thing the run is about: one per step in the definition's
+// order, coloured by state, titled with the step and its status, the row
+// linking to the instance page.
+func TestProgressIsARowOfDotsOnePerStepColouredByState(t *testing.T) {
+	v := views(&store{})
+	r := run("r1", shipping, "v1.1.0", wf.StatusFailed, t0)
+	steps := []wf.StepResult{stage("r1", "build", wf.StatusCompleted, t0), stage("r1", "tag", wf.StatusFailed, t0.Add(time.Second)),
+		stage("r1", "tag", wf.StatusCompleted, t0.Add(time.Minute))} // the retry
+	row := string(v.Progress(r, steps))
+	mustContain(t, row, `<a class="dots" href="/workflows/instances/r1">`)
+	dots := regexp.MustCompile(`<span class="dot" title="([^"]*)" style="[^"]*background:([^;"]*)`).FindAllStringSubmatch(row, -1)
+	var got []string
+	for _, d := range dots {
+		got = append(got, d[1]+" "+d[2])
+	}
+	want := []string{"build: completed #48c78e", "tag: completed #48c78e", "publish: not run #ffffff"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("dots %q, want %q in:\n%s", got, want, row)
+	}
+}
+
+func TestProgressColoursWaitingRunningAndCancelled(t *testing.T) {
+	v := views(&store{})
+	colour := func(status wf.RunStatus) string {
+		row := string(v.Progress(run("r", shipping, "v1", wf.StatusRunning, t0), []wf.StepResult{stage("r", "build", status, t0)}))
+		m := regexp.MustCompile(`title="build: ([^"]*)" style="[^"]*background:(#[0-9a-f]{6})`).FindStringSubmatch(row)
+		if m == nil {
+			t.Fatalf("no build dot in:\n%s", row)
+		}
+		return m[1] + " " + m[2]
+	}
+	for status, want := range map[wf.RunStatus]string{
+		wf.StatusWaiting: "waiting #ffb000", wf.StatusRunning: "running #ffb000", wf.StatusCancelled: "cancelled #ffe08a", wf.StatusFailed: "failed #f14668",
+	} {
+		if got := colour(status); got != want {
+			t.Fatalf("%s: %q, want %q", status, got, want)
+		}
+	}
+}
+
+// A run of a definition this build does not have, or of an older
+// revision, draws the steps its revision recorded.
+func TestProgressFollowsTheRevisionTheRunRecorded(t *testing.T) {
+	v := views(&store{})
+	r := run("r1", shipping, "v0.9", wf.StatusCompleted, t0)
+	r.Revision = wf.NewRevision([]string{"build", "ship"})
+	row := string(v.Progress(r, []wf.StepResult{stage("r1", "build", wf.StatusCompleted, t0), stage("r1", "ship", wf.StatusCompleted, t0)}))
+	if strings.Count(row, `class="dot"`) != 2 || !strings.Contains(row, `title="ship: completed"`) || strings.Contains(row, "publish") {
+		t.Fatalf("two dots, build and ship:\n%s", row)
+	}
+	unknown := wf.RunRecord{ID: "u1", WorkflowType: "nope", Revision: wf.NewRevision([]string{"a", "b", "c"})}
+	if row := string(v.Progress(unknown, nil)); strings.Count(row, `class="dot"`) != 3 || !strings.Contains(row, `title="c: not run"`) {
+		t.Fatalf("an unknown definition's revision still names its steps:\n%s", row)
+	}
+}

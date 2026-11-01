@@ -47,11 +47,11 @@ Each definition is a kind of workflow the engine can run; each run recorded in t
 
 The batch and its payments are a master–detail pair: the batch's instance page lists its payments as children with their state, and each payment's page links up to its batch.
 
-The diagrams below show only how the steps flow; they are generated from the registry by `cmd/defd2` and rendered with d2 at docs build time, so they cannot drift from the code. Each step is a link to the code that performs it. The demo app shows the same pictures, colours an instance's steps by state, and carries the detail in tables.
+The diagrams below show only how the steps flow (the release pipeline drawn down, since eight steps across would read too small on this page); they are generated from the registry by `cmd/defd2` and rendered with d2 at docs build time, so they cannot drift from the code. Each step is a link to the code that performs it. The demo app shows the same pictures, colours an instance's steps by state, and carries the detail in tables.
 
 ![daily_update definition](definitions/daily_update.svg)
 
-![release definition](definitions/release.svg)
+![release definition](definitions/release.down.svg)
 
 ![payment_batch definition](definitions/payment_batch.svg)
 
