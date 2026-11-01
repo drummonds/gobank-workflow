@@ -186,11 +186,17 @@ func (v *Views) childrenHTML(ctx context.Context, b *strings.Builder, id string)
 	b.WriteString(`</tbody></table>`)
 }
 
+// diagramHTML embeds the definition's picture drawn across, with the one
+// drawn down in its place on a narrow screen when the host shipped it.
 func (v *Views) diagramHTML(b *strings.Builder, t wf.WorkflowType) {
-	if _, ok := v.diagram(t); !ok {
+	if _, ok := v.diagram(t, ""); !ok {
 		return
 	}
-	fmt.Fprintf(b, `<figure class="image my-4"><img src="%s/diagram.svg" alt="%s steps" style="max-width:100%%"></figure>`, v.DefinitionHref(t), t)
+	img := fmt.Sprintf(`<img src="%s/diagram.svg" alt="%s steps" style="max-width:100%%">`, v.DefinitionHref(t), t)
+	if _, ok := v.diagram(t, ".down"); ok {
+		img = fmt.Sprintf(`<picture><source media="(max-width: 768px)" srcset="%s/diagram.down.svg">%s</picture>`, v.DefinitionHref(t), img)
+	}
+	fmt.Fprintf(b, `<figure class="image my-4">%s</figure>`, img)
 }
 
 func errorNote(b *strings.Builder, err error) {

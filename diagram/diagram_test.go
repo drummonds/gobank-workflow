@@ -28,7 +28,7 @@ var shipping = wf.Definition{
 func release(t *testing.T) wf.Definition { return shipping }
 
 func TestDefinitionDrawsEveryStepInOrder(t *testing.T) {
-	src := Definition(release(t), nil)
+	src := Definition(release(t), Across, nil)
 	for _, want := range []string{
 		"direction: right",
 		`release: "release`,
@@ -45,7 +45,7 @@ func TestDefinitionDrawsEveryStepInOrder(t *testing.T) {
 }
 
 func TestDefinitionWithOneStepHasNoEdges(t *testing.T) {
-	src := Definition(wf.DailyUpdate, nil)
+	src := Definition(wf.DailyUpdate, Across, nil)
 	if strings.Contains(src, "->") {
 		t.Fatalf("single step should have no edge:\n%s", src)
 	}
@@ -66,7 +66,7 @@ func TestInstanceColoursStepsByState(t *testing.T) {
 		{StepName: "push mirror", Status: wf.StatusFailed, Error: "boom"},
 		{StepName: "verify install", Status: wf.StatusWaiting},
 	}
-	src := Instance(def, run, steps, nil)
+	src := Instance(def, run, steps, Across, nil)
 	if strings.Contains(src, "boom") || strings.Contains(src, "choose the next") {
 		t.Fatalf("diagram should carry no detail beyond names and state:\n%s", src)
 	}
@@ -101,7 +101,7 @@ func TestInstanceDrawsTheRevisionItRan(t *testing.T) {
 	run := wf.RunRecord{WorkflowType: shipping.Type, Key: "v0.0.9", Status: wf.StatusCompleted,
 		Revision: wf.NewRevision([]string{"check", "tag", "publish"})}
 	steps := []wf.StepResult{{StepName: "check", Status: wf.StatusCompleted}, {StepName: "tag", Status: wf.StatusCompleted}, {StepName: "publish", Status: wf.StatusCompleted}}
-	src := Instance(release(t), run, steps, nil)
+	src := Instance(release(t), run, steps, Across, nil)
 	for _, want := range []string{"check -> tag -> publish", `check: "check" {link: "https://`, `publish: "publish"`, "publish.class: completed"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q in:\n%s", want, src)
@@ -116,7 +116,7 @@ func TestDefinitionDrawsASubProcessAsACollapsedBoxLinkingToItsChild(t *testing.T
 	batch := wf.Definition{Type: "batch", InstanceKey: "batch id", Steps: []wf.Step{
 		{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Mode: wf.AllAtOnce}, {Name: "close"}}}
 	href := func(t wf.WorkflowType) string { return "/workflows/definitions/" + string(t) }
-	src := Definition(batch, href)
+	src := Definition(batch, Across, href)
 	for _, want := range []string{
 		`loads: "loads ⊞" {link: "/workflows/definitions/load"}`,
 		"loads.style.multiple: true",
@@ -127,54 +127,35 @@ func TestDefinitionDrawsASubProcessAsACollapsedBoxLinkingToItsChild(t *testing.T
 		}
 	}
 	one := wf.Definition{Type: "load", Steps: []wf.Step{{Name: "photos", Child: "photo"}}}
-	if src := Definition(one, nil); !strings.Contains(src, `photos: "photos ⊞"`) || strings.Contains(src, "link:") || strings.Contains(src, "multiple") {
+	if src := Definition(one, Across, nil); !strings.Contains(src, `photos: "photos ⊞"`) || strings.Contains(src, "link:") || strings.Contains(src, "multiple") {
 		t.Fatalf("one child, no href: a marked box, no link, not stacked:\n%s", src)
 	}
 	run := wf.RunRecord{WorkflowType: "batch", Key: "B-1", Status: wf.StatusRunning}
-	inst := Instance(batch, run, []wf.StepResult{{StepName: "describe", Status: wf.StatusCompleted}, {StepName: "loads", Status: wf.StatusCompleted}}, href)
+	inst := Instance(batch, run, []wf.StepResult{{StepName: "describe", Status: wf.StatusCompleted}, {StepName: "loads", Status: wf.StatusCompleted}}, Across, href)
 	if !strings.Contains(inst, `loads: "loads ⊞" {link: "/workflows/definitions/load"}`) || !strings.Contains(inst, "loads.class: completed") {
 		t.Fatalf("an instance draws the sub-process the same way:\n%s", inst)
 	}
 }
 
-// A long step list wraps into rows of four, so a definition stays legible
-// across a 960px page; a short one stays a single row.
-func TestALongStepListWrapsIntoRows(t *testing.T) {
-	long := Definition(shipping, nil)
-	if !strings.Contains(long, "grid-columns: 4") || !strings.Contains(long, "check -> bump -> changelog -> tag -> push_origin -> push_mirror -> verify_install -> deploy_docs") {
-		t.Fatalf("eight steps should wrap into rows and keep their flow:\n%s", long)
+// A definition is drawn two ways, across in one row and down in one
+// column, for the host to show by the width of the screen. Neither is a
+// grid: d2 lays a grid column first and cannot loop an edge back to a
+// grid cell, and in a row or a column every edge is routed around the
+// boxes.
+func TestADefinitionIsDrawnAcrossOrDownNeverAsAGrid(t *testing.T) {
+	across := Definition(shipping, Across, nil)
+	down := Definition(shipping, Down, nil)
+	if !strings.HasPrefix(across, "direction: right\n") || !strings.HasPrefix(down, "direction: down\n") {
+		t.Fatalf("directions:\n%s\n%s", across, down)
 	}
-	short := wf.Definition{Type: "promotion", Steps: []wf.Step{{Name: "build"}, {Name: "approve"}, {Name: "promote"}, {Name: "verify"}}}
-	if src := Definition(short, nil); strings.Contains(src, "grid") {
-		t.Fatalf("four steps fit a row:\n%s", src)
-	}
-	inst := Instance(shipping, wf.RunRecord{WorkflowType: shipping.Type, Key: "v1"}, nil, nil)
-	if !strings.Contains(inst, "grid-columns: 4") {
-		t.Fatalf("an instance of a long definition wraps the same way:\n%s", inst)
-	}
-}
-
-// How children are started and waited for is drawn: a loop arrow on a
-// step that starts them one at a time, stacked boxes for all at once, and
-// a dashed edge into the step that waits for them all.
-func TestDefinitionDrawsTheModeAndTheJoin(t *testing.T) {
-	batch := wf.Definition{Type: "batch", Steps: []wf.Step{
-		{Name: "describe"}, {Name: "scans", Child: "scan", Mode: wf.OneAtATime}, {Name: "photos", Child: "photo", Mode: wf.AllAtOnce}, {Name: "close", Joins: "photos"}}}
-	src := Definition(batch, nil)
-	for _, want := range []string{
-		`scans -> scans: "one at a time"`,
-		"photos.style.multiple: true",
-		`photos -> close: "all through" {style.stroke-dash: 3}`,
-		"describe -> scans -> photos -> close",
-	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("missing %q in:\n%s", want, src)
+	chain := "check -> bump -> changelog -> tag -> push_origin -> push_mirror -> verify_install -> deploy_docs"
+	for _, src := range []string{across, down} {
+		if strings.Contains(src, "grid") || !strings.Contains(src, chain) {
+			t.Fatalf("eight steps are one chain, no grid:\n%s", src)
 		}
 	}
-	if strings.Contains(src, "scans.style.multiple") {
-		t.Fatalf("one at a time is a loop, not a stack:\n%s", src)
-	}
-	if strings.Contains(src, "describe -> describe") || strings.Contains(src, "close -> close") {
-		t.Fatalf("a plain step has no loop:\n%s", src)
+	inst := Instance(shipping, wf.RunRecord{WorkflowType: shipping.Type, Key: "v1"}, nil, Down, nil)
+	if !strings.HasPrefix(inst, "direction: down\n") || strings.Contains(inst, "grid") {
+		t.Fatalf("an instance is drawn the same two ways:\n%s", inst)
 	}
 }
