@@ -18,8 +18,10 @@ import (
 type Href func(wf.WorkflowType) string
 
 // Definition draws the steps of a definition in order. A sub-process step
-// is one collapsed box, BPMN's ⊞ marker on its name, stacked when it
-// starts many children, linking to the child definition's page.
+// is one collapsed box, BPMN's ⊞ marker on its name, linking to the child
+// definition's page: a loop arrow when it starts its children one at a
+// time, stacked when all at once. A dashed edge runs from it to the step
+// that waits for its children.
 func Definition(d wf.Definition, child Href) string {
 	var b strings.Builder
 	b.WriteString("direction: right\n\n")
@@ -93,13 +95,21 @@ func writeSteps(b *strings.Builder, steps []wf.Step, child Href) {
 		} else {
 			fmt.Fprintf(b, "  %s: %q\n", id(st.Name), label)
 		}
-		if st.Many {
+		switch st.Mode {
+		case wf.OneAtATime:
+			fmt.Fprintf(b, "  %s -> %s: %q\n", id(st.Name), id(st.Name), st.Mode)
+		case wf.AllAtOnce:
 			fmt.Fprintf(b, "  %s.style.multiple: true\n", id(st.Name))
 		}
 		ids = append(ids, id(st.Name))
 	}
 	if len(ids) > 1 {
 		fmt.Fprintf(b, "  %s\n", strings.Join(ids, " -> "))
+	}
+	for _, st := range steps {
+		if st.Joins != "" {
+			fmt.Fprintf(b, "  %s -> %s: \"all through\" {style.stroke-dash: 3}\n", id(st.Joins), id(st.Name))
+		}
 	}
 }
 

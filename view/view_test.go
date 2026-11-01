@@ -506,7 +506,7 @@ func TestACancelledInstanceIsTaggedAsEnded(t *testing.T) {
 
 var (
 	batching = wf.Definition{Type: "batch", Purpose: wf.Purpose{Name: "scan", Description: "Scan a batch."}, Description: "One batch of prints.", InstanceKey: "batch id",
-		Steps: []wf.Step{{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Many: true}, {Name: "close"}}}
+		Steps: []wf.Step{{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Mode: wf.OneAtATime, Given: "the batch id and the load's number"}, {Name: "close", Joins: "loads"}}}
 	loading = wf.Definition{Type: "load", Purpose: wf.Purpose{Name: "scan", Description: "Scan a batch."}, Description: "One load of the bed.", InstanceKey: "batch id/n",
 		Steps: []wf.Step{{Name: "preview"}, {Name: "photos", Child: "photo"}}}
 )
@@ -533,12 +533,38 @@ func TestAnInstanceListsItsChildrenAndLinksUpToItsParent(t *testing.T) {
 	}
 }
 
-func TestADefinitionPageNamesTheChildOfASubProcessStep(t *testing.T) {
+// A parent's page says of each child-starting step how it starts its
+// children and what it gives them, and marks the step that waits for
+// them; a child's page says who starts it.
+func TestADefinitionPageStatesItsPlaceAmongParentsAndChildren(t *testing.T) {
 	v := &view.Views{Store: &store{}, Definitions: []wf.Definition{batching, loading}, Base: "/workflows/"}
 	body := serve(t, v, "/workflows/definitions/batch").body
-	mustContain(t, body, "loads ⊞", `starts many <a href="/workflows/definitions/load"><code>load</code></a>`)
-	mustContain(t, serve(t, v, "/workflows/definitions/load").body, `starts one <a href="/workflows/definitions/photo"><code>photo</code></a>`)
+	mustContain(t, body, "loads ⊞",
+		`starts <a href="/workflows/definitions/load"><code>load</code></a> children one at a time; <em>close</em> waits for all, given the batch id and the load&#39;s number`,
+		`waits for every <em>loads</em> child to be through`)
+	if strings.Contains(body, "Started by") {
+		t.Fatal("a top-level definition is started by nobody in the registry")
+	}
+	load := serve(t, v, "/workflows/definitions/load").body
+	mustContain(t, load, `starts one <a href="/workflows/definitions/photo"><code>photo</code></a>`,
+		`<strong>Started by:</strong> <a href="/workflows/definitions/batch"><code>batch</code></a>&#39;s step <em>loads</em>, one at a time, given the batch id and the load&#39;s number`)
 	mustContain(t, serve(t, v, "/workflows/definitions").body, "describe → loads ⊞ → close")
+}
+
+// The four ways children are started and waited for, as the page words
+// them; a fan-out that nothing waits for is warned about.
+func TestADefinitionPageWordsEachWayOfStartingChildren(t *testing.T) {
+	each := wf.Definition{Type: "each", Steps: []wf.Step{{Name: "scans", Child: "scan", Mode: wf.OneAtATime}}}
+	fanJoined := wf.Definition{Type: "fan", Steps: []wf.Step{{Name: "photos", Child: "photo", Mode: wf.AllAtOnce}, {Name: "receipt", Joins: "photos"}}}
+	fanLoose := wf.Definition{Type: "loose", Steps: []wf.Step{{Name: "photos", Child: "photo", Mode: wf.AllAtOnce}}}
+	v := &view.Views{Store: &store{}, Definitions: []wf.Definition{each, fanJoined, fanLoose}, Base: "/workflows/"}
+	mustContain(t, serve(t, v, "/workflows/definitions/each").body, `starts <a href="/workflows/definitions/scan"><code>scan</code></a> children one at a time and waits for each`)
+	joined := serve(t, v, "/workflows/definitions/fan").body
+	mustContain(t, joined, `starts a <a href="/workflows/definitions/photo"><code>photo</code></a> child per item, all at once; <em>receipt</em> waits for all`, `waits for every <em>photos</em> child to be through`)
+	if strings.Contains(joined, "nothing waits") {
+		t.Fatal("receipt waits for the photos")
+	}
+	mustContain(t, serve(t, v, "/workflows/definitions/loose").body, `starts a <a href="/workflows/definitions/photo"><code>photo</code></a> child per item, all at once`, `<span class="tag is-warning is-light">nothing waits for the children</span>`)
 }
 
 // A queue row says what ran as the workflow and the last two characters
