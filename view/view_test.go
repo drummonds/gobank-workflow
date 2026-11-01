@@ -373,20 +373,36 @@ func TestDefinitionsDescribeTheirStepsAndCountTheirInstances(t *testing.T) {
 	}
 }
 
+// A host ships a picture of each definition drawn across, <type>.svg, and
+// may ship one drawn down, <type>.down.svg; the page shows the one that
+// fits the screen, the down picture on a phone.
 func TestDiagramsAreServedAndEmbeddedWhenShipped(t *testing.T) {
-	s := &store{runs: []wf.RunRecord{run("r1", shipping, "v1.1.0", wf.StatusCompleted, t0)}}
+	s := &store{runs: []wf.RunRecord{run("r1", shipping, "v1.1.0", wf.StatusCompleted, t0), run("r2", accrual, "", wf.StatusCompleted, t0)}}
 	v := views(s)
-	v.Diagrams = fstest.MapFS{"ship.svg": {Data: []byte("<svg>ship</svg>")}}
+	v.Diagrams = fstest.MapFS{"ship.svg": {Data: []byte("<svg>ship</svg>")}, "ship.down.svg": {Data: []byte("<svg>ship down</svg>")}, "accrue.svg": {Data: []byte("<svg>accrue</svg>")}}
 
 	svg := serve(t, v, "/workflows/definitions/ship/diagram.svg")
 	if svg.status != 200 || svg.body != "<svg>ship</svg>" {
 		t.Fatalf("svg: %d %q", svg.status, svg.body)
 	}
-	if p := serve(t, v, "/workflows/definitions/accrue/diagram.svg"); p.status != 404 {
+	if down := serve(t, v, "/workflows/definitions/ship/diagram.down.svg"); down.status != 200 || down.body != "<svg>ship down</svg>" {
+		t.Fatalf("down svg: %d %q", down.status, down.body)
+	}
+	if p := serve(t, v, "/workflows/definitions/accrue/diagram.down.svg"); p.status != 404 {
+		t.Fatalf("missing down diagram: status %d", p.status)
+	}
+	if p := serve(t, v, "/workflows/definitions/nope/diagram.svg"); p.status != 404 {
 		t.Fatalf("missing diagram: status %d", p.status)
 	}
-	mustContain(t, serve(t, v, "/workflows/definitions/ship").body, `src="/workflows/definitions/ship/diagram.svg"`)
-	mustContain(t, serve(t, v, "/workflows/instances/r1").body, `src="/workflows/definitions/ship/diagram.svg"`)
+	both := `<picture><source media="(max-width: 768px)" srcset="/workflows/definitions/ship/diagram.down.svg"><img src="/workflows/definitions/ship/diagram.svg"`
+	mustContain(t, serve(t, v, "/workflows/definitions/ship").body, both)
+	mustContain(t, serve(t, v, "/workflows/instances/r1").body, both)
+	accrue := serve(t, v, "/workflows/definitions/accrue").body
+	mustContain(t, accrue, `<img src="/workflows/definitions/accrue/diagram.svg"`)
+	if strings.Contains(accrue, "<picture>") {
+		t.Fatal("with no down picture the across one is shown on its own")
+	}
+	v.Diagrams = nil
 	if strings.Contains(serve(t, v, "/workflows/definitions/accrue").body, ".svg") {
 		t.Fatal("no diagram shipped for accrue; its page should not embed one")
 	}

@@ -223,14 +223,19 @@ steps, each linked to its source. A sub-process step is one collapsed box,
 BPMN's ⊞ on its name, a loop arrow when it starts children one at a time,
 stacked when all at once, linking to the child definition's page; the
 child's picture is on that page, and a dashed edge runs from the step to
-the one that joins its children. More than four
-steps wrap into rows of four, so the picture stays legible across a
-960px page. One picture answers one question, so a definition that does
-not fit across a screen is split: the run of steps that overflows becomes a
-sub-process with its own page.
+the one that joins its children. Each definition is drawn twice, across
+in one row (`diagram.Across`, `<type>.svg`) and down in one column
+(`diagram.Down`, `<type>.down.svg`); the pages show the one that fits the
+screen, down on a phone. Neither is a grid: d2 fills a grid column first
+and cannot loop an edge back to a grid cell, and in a row or a column no
+edge crosses a step. A long row shrinks to fit the page, which is the
+pressure to split: one picture answers one question, so a definition that
+does not fit across a screen becomes a sub-process with its own page for
+the run of steps that overflows.
 `diagram.Instance` draws one instance with its steps coloured by state;
-the demo app serves it at `workflows/instances/<id>/diagram.d2`. Nothing is
-drawn by hand, so the pictures cannot drift from the code.
+the demo app serves it drawn across at
+`workflows/instances/<id>/diagram.d2`. Nothing is drawn by hand, so the
+pictures cannot drift from the code.
 
 ## Worked example
 

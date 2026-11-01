@@ -17,14 +17,26 @@ import (
 // nil draws the box with no link.
 type Href func(wf.WorkflowType) string
 
+// Direction is which way a picture runs: Across in one row for a wide
+// screen, Down in one column for a narrow one. A host ships both and
+// shows the one that fits. Neither is a grid: d2 lays a grid column
+// first and cannot loop an edge back to a grid cell, and in a row or a
+// column every edge is routed around the boxes.
+type Direction string
+
+const (
+	Across Direction = "right"
+	Down   Direction = "down"
+)
+
 // Definition draws the steps of a definition in order. A sub-process step
 // is one collapsed box, BPMN's ⊞ marker on its name, linking to the child
 // definition's page: a loop arrow when it starts its children one at a
 // time, stacked when all at once. A dashed edge runs from it to the step
 // that waits for its children.
-func Definition(d wf.Definition, child Href) string {
+func Definition(d wf.Definition, dir Direction, child Href) string {
 	var b strings.Builder
-	b.WriteString("direction: right\n\n")
+	fmt.Fprintf(&b, "direction: %s\n\n", dir)
 	fmt.Fprintf(&b, "%s: %q {\n", id(string(d.Type)), fmt.Sprintf("%s — one instance per %s", d.Type, d.InstanceKey))
 	writeSteps(&b, d.Steps, child)
 	b.WriteString("}\n")
@@ -33,13 +45,13 @@ func Definition(d wf.Definition, child Href) string {
 
 // Instance draws the steps the instance ran, from its revision, each in
 // the state the instance left it: completed, failed, or not run.
-func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult, child Href) string {
+func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult, dir Direction, child Href) string {
 	byName := map[string]wf.StepResult{}
 	for _, s := range steps {
 		byName[s.StepName] = s
 	}
 	var b strings.Builder
-	b.WriteString("direction: right\n\n")
+	fmt.Fprintf(&b, "direction: %s\n\n", dir)
 	b.WriteString("classes: {\n")
 	b.WriteString("  completed: {style.fill: \"#d1fae5\"; style.stroke: \"#059669\"}\n")
 	b.WriteString("  failed: {style.fill: \"#fee2e2\"; style.stroke: \"#dc2626\"; style.bold: true}\n")
@@ -71,14 +83,7 @@ func Instance(d wf.Definition, run wf.RunRecord, steps []wf.StepResult, child Hr
 	return b.String()
 }
 
-// rowWidth is how many steps fit across a 960px page before the text
-// would draw too small: a longer list wraps into rows of this many.
-const rowWidth = 4
-
 func writeSteps(b *strings.Builder, steps []wf.Step, child Href) {
-	if len(steps) > rowWidth {
-		fmt.Fprintf(b, "  grid-columns: %d\n", rowWidth)
-	}
 	var ids []string
 	for _, st := range steps {
 		label, link := st.Name, st.Source
