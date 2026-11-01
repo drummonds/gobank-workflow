@@ -256,6 +256,40 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 	return template.HTML(b.String()), true
 }
 
+// role is a definition's place in a hierarchy, read from the registry: a
+// parent when one of its steps starts children, a child when another
+// definition's step starts it, both or neither.
+func (v *Views) role(d wf.Definition) string {
+	var roles []string
+	if slices.ContainsFunc(d.Steps, func(st wf.Step) bool { return st.Child != "" }) {
+		roles = append(roles, "parent")
+	}
+	for _, other := range v.Definitions {
+		if slices.ContainsFunc(other.Steps, func(st wf.Step) bool { return st.Child == d.Type }) {
+			roles = append(roles, "child")
+			break
+		}
+	}
+	return strings.Join(roles, ", ")
+}
+
+// shownSteps is how many of a definition's steps the list shows before
+// counting the rest.
+const shownSteps = 4
+
+// firstSteps is a step list as one line: every step when there are few,
+// else the first few and a count.
+func firstSteps(steps []wf.Step) string {
+	var names []string
+	for _, st := range steps {
+		names = append(names, stepLabel(st))
+	}
+	if len(names) <= shownSteps {
+		return html.EscapeString(strings.Join(names, " → "))
+	}
+	return fmt.Sprintf(`%s … <span class="has-text-grey">(%d steps)</span>`, html.EscapeString(strings.Join(names[:shownSteps], " → ")), len(names))
+}
+
 func (v *Views) definitionsHTML(ctx context.Context) template.HTML {
 	counts, err := v.Store.CountRuns(ctx)
 	var b strings.Builder
@@ -264,19 +298,15 @@ func (v *Views) definitionsHTML(ctx context.Context) template.HTML {
 		errorNote(&b, err)
 	}
 	b.WriteString(`<div class="table-container"><table class="table is-striped is-hoverable is-fullwidth">`)
-	b.WriteString(`<thead><tr><th>Purpose</th><th>Type</th><th>Description</th><th>Instance key</th><th>Steps</th><th>Instances</th></tr></thead><tbody>`)
+	b.WriteString(`<thead><tr><th>Purpose</th><th>Type</th><th>Role</th><th>Description</th><th>Instance key</th><th>Steps</th><th>Instances</th></tr></thead><tbody>`)
 	for _, d := range v.Definitions {
 		c := counts[d.Type]
-		var names []string
-		for _, st := range d.Steps {
-			names = append(names, stepLabel(st))
-		}
 		purpose := "—"
 		if d.Purpose.Name != "" {
 			purpose = fmt.Sprintf(`<strong>%s</strong><br><span class="has-text-grey">%s</span>`, html.EscapeString(d.Purpose.Name), html.EscapeString(d.Purpose.Description))
 		}
-		fmt.Fprintf(&b, `<tr><td>%s</td><td><a href="%s"><code>%s</code></a></td><td>%s</td><td>%s</td><td>%s</td><td>%d <span class="has-text-grey">(%d completed, %d failed)</span></td></tr>`,
-			purpose, v.DefinitionHref(d.Type), d.Type, html.EscapeString(d.Description), html.EscapeString(d.InstanceKey), html.EscapeString(strings.Join(names, " → ")), c.Total(), c[wf.StatusCompleted], c[wf.StatusFailed])
+		fmt.Fprintf(&b, `<tr><td>%s</td><td><a href="%s"><code>%s</code></a></td><td class="role">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d <span class="has-text-grey">(%d completed, %d failed)</span></td></tr>`,
+			purpose, v.DefinitionHref(d.Type), d.Type, v.role(d), html.EscapeString(d.Description), html.EscapeString(d.InstanceKey), firstSteps(d.Steps), c.Total(), c[wf.StatusCompleted], c[wf.StatusFailed])
 	}
 	b.WriteString(`</tbody></table></div>`)
 	return template.HTML(b.String())

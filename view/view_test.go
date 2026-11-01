@@ -583,3 +583,39 @@ func TestTheHostsOwnPageIsPreferredWhenItHasOne(t *testing.T) {
 	parent := serve(t, v, "/workflows/instances/c-new").body
 	mustContain(t, parent, `<a href="/releases/v1.2.0"><strong>v1.2.0</strong></a>`, `href="/workflows/instances/k">Instance</a>`)
 }
+
+// The definitions list says each workflow's place in a hierarchy, derived
+// from the registry: a parent starts children, a child is started by one.
+// Its steps column shows the first four and counts the rest, so a long
+// workflow is a line, not a paragraph.
+func TestDefinitionsListTheirRoleAndTheirFirstFewSteps(t *testing.T) {
+	photo := wf.Definition{Type: "photo", Purpose: batching.Purpose, Description: "One photo.", InstanceKey: "photo id",
+		Steps: []wf.Step{{Name: "shoot"}, {Name: "crop"}, {Name: "colour"}, {Name: "name"}, {Name: "receipt"}, {Name: "archive"}}}
+	v := &view.Views{Store: &store{}, Definitions: []wf.Definition{batching, loading, photo, shipping}, Base: "/workflows/"}
+	body := serve(t, v, "/workflows/definitions").body
+	rows := strings.Split(body, "<tr>")[2:] // after the header row
+	role := func(row string) string {
+		m := regexp.MustCompile(`<td class="role">(.*?)</td>`).FindStringSubmatch(row)
+		if m == nil {
+			t.Fatalf("no role cell in row:\n%s", row)
+		}
+		return m[1]
+	}
+	mustContain(t, body, "<th>Role</th>")
+	if got := role(rows[0]); got != "parent" {
+		t.Fatalf("batch starts loads: role %q", got)
+	}
+	if got := role(rows[1]); got != "parent, child" {
+		t.Fatalf("load is started by batch and starts photos: role %q", got)
+	}
+	if got := role(rows[2]); got != "child" {
+		t.Fatalf("photo is started by load: role %q", got)
+	}
+	if got := role(rows[3]); got != "" {
+		t.Fatalf("ship stands alone: role %q", got)
+	}
+	mustContain(t, body, "shoot → crop → colour → name … <span class=\"has-text-grey\">(6 steps)</span>", "build → tag → publish")
+	if strings.Contains(body, "receipt") || strings.Contains(body, "publish …") {
+		t.Fatalf("four or fewer steps are shown in full; more are cut after the fourth:\n%s", body)
+	}
+}
