@@ -85,17 +85,67 @@ func stepLabel(st wf.Step) string {
 	return st.Name
 }
 
-// subProcessNote says what a sub-process step starts, linking to the child
-// definition; empty for a plain step.
-func (v *Views) subProcessNote(st wf.Step) string {
+// subProcessNote says what a sub-process step starts, how, what it gives
+// its children and which step waits for them, linking to the child
+// definition; on the step that waits, whose children it waits for; empty
+// for a plain step.
+func (v *Views) subProcessNote(d wf.Definition, st wf.Step) string {
+	if st.Joins != "" {
+		return fmt.Sprintf(` <span class="has-text-grey">— waits for every <em>%s</em> child to be through</span>`, html.EscapeString(st.Joins))
+	}
 	if st.Child == "" {
 		return ""
 	}
-	n := "one"
-	if st.Many {
-		n = "many"
+	child := fmt.Sprintf(`<a href="%s"><code>%s</code></a>`, v.DefinitionHref(st.Child), html.EscapeString(string(st.Child)))
+	joins := ""
+	for _, other := range d.Steps {
+		if other.Joins == st.Name {
+			joins = fmt.Sprintf("; <em>%s</em> waits for all", html.EscapeString(other.Name))
+		}
 	}
-	return fmt.Sprintf(` <span class="has-text-grey">— starts %s <a href="%s"><code>%s</code></a></span>`, n, v.DefinitionHref(st.Child), html.EscapeString(string(st.Child)))
+	var starts, warning string
+	switch {
+	case st.Mode == wf.OneAtATime && joins == "":
+		starts = fmt.Sprintf("starts %s children one at a time and waits for each", child)
+	case st.Mode == wf.OneAtATime:
+		starts = fmt.Sprintf("starts %s children one at a time%s", child, joins)
+	case st.Mode == wf.AllAtOnce && joins == "":
+		starts = fmt.Sprintf("starts a %s child per item, all at once", child)
+		warning = ` <span class="tag is-warning is-light">nothing waits for the children</span>`
+	case st.Mode == wf.AllAtOnce:
+		starts = fmt.Sprintf("starts a %s child per item, all at once%s", child, joins)
+	default:
+		starts = fmt.Sprintf("starts one %s%s", child, joins)
+	}
+	return fmt.Sprintf(` <span class="has-text-grey">— %s%s</span>%s`, starts, given(st), warning)
+}
+
+// given is what a child-starting step gives its children, as a clause;
+// empty when the step says nothing.
+func given(st wf.Step) string {
+	if st.Given == "" {
+		return ""
+	}
+	return ", given " + html.EscapeString(st.Given)
+}
+
+// startedBy says who starts a definition's instances: each registry step
+// that names it as a child, with its mode and what it gives. Nothing for
+// a definition nobody in the registry starts.
+func (v *Views) startedBy(b *strings.Builder, t wf.WorkflowType) {
+	for _, d := range v.Definitions {
+		for _, st := range d.Steps {
+			if st.Child != t {
+				continue
+			}
+			mode := ""
+			if st.Mode != "" {
+				mode = ", " + string(st.Mode)
+			}
+			fmt.Fprintf(b, `<p><strong>Started by:</strong> <a href="%s"><code>%s</code></a>&#39;s step <em>%s</em>%s%s.</p>`,
+				v.DefinitionHref(d.Type), html.EscapeString(string(d.Type)), html.EscapeString(st.Name), mode, given(st))
+		}
+	}
 }
 
 // parentLink names a run's parent and links up to it; the bare id when
@@ -136,11 +186,17 @@ func (v *Views) childrenHTML(ctx context.Context, b *strings.Builder, id string)
 	b.WriteString(`</tbody></table>`)
 }
 
+// diagramHTML embeds the definition's picture drawn across, with the one
+// drawn down in its place on a narrow screen when the host shipped it.
 func (v *Views) diagramHTML(b *strings.Builder, t wf.WorkflowType) {
-	if _, ok := v.diagram(t); !ok {
+	if _, ok := v.diagram(t, ""); !ok {
 		return
 	}
-	fmt.Fprintf(b, `<figure class="image my-4"><img src="%s/diagram.svg" alt="%s steps" style="max-width:100%%"></figure>`, v.DefinitionHref(t), t)
+	img := fmt.Sprintf(`<img src="%s/diagram.svg" alt="%s steps" style="max-width:100%%">`, v.DefinitionHref(t), t)
+	if _, ok := v.diagram(t, ".down"); ok {
+		img = fmt.Sprintf(`<picture><source media="(max-width: 768px)" srcset="%s/diagram.down.svg">%s</picture>`, v.DefinitionHref(t), img)
+	}
+	fmt.Fprintf(b, `<figure class="image my-4">%s</figure>`, img)
 }
 
 func errorNote(b *strings.Builder, err error) {
@@ -230,7 +286,7 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 				status, dur, errMsg = statusTag(st.Status), took(time.Duration(st.DurationNs)), st.Error
 			}
 			fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong> <span class="has-text-grey">%s</span> %s%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td></tr>`,
-				i+1, html.EscapeString(stepLabel(stage)), html.EscapeString(stage.Description), sourceLink(stage), v.subProcessNote(stage), status, dur, html.EscapeString(errMsg))
+				i+1, html.EscapeString(stepLabel(stage)), html.EscapeString(stage.Description), sourceLink(stage), v.subProcessNote(*def, stage), status, dur, html.EscapeString(errMsg))
 		}
 		b.WriteString(`</tbody></table>`)
 	case def == nil && len(steps) > 0:
@@ -290,6 +346,58 @@ func firstSteps(steps []wf.Step) string {
 	return fmt.Sprintf(`%s … <span class="has-text-grey">(%d steps)</span>`, html.EscapeString(strings.Join(names[:shownSteps], " → ")), len(names))
 }
 
+// dotColour is the colour of a step's dot in a Progress row: green
+// completed, red failed, amber waiting or running, yellow cancelled,
+// white not run.
+func dotColour(status wf.RunStatus, recorded bool) string {
+	switch {
+	case !recorded:
+		return "#ffffff"
+	case status == wf.StatusCompleted:
+		return "#48c78e"
+	case status == wf.StatusFailed:
+		return "#f14668"
+	case status == wf.StatusCancelled:
+		return "#ffe08a"
+	case status == wf.StatusWaiting || status == wf.StatusRunning:
+		return "#ffb000"
+	}
+	return "#ffffff"
+}
+
+// Progress is a run's steps as a row of dots, for a host's own page about
+// the thing the run is about: one dot per step in the order the run's
+// revision recorded, coloured by the step's latest state and titled with
+// its name and status, the row linking to the instance page. Inline
+// spans, no SVG, so it sits in a table cell or a line of text.
+func (v *Views) Progress(run wf.RunRecord, steps []wf.StepResult) template.HTML {
+	var names []string
+	if def := v.definition(run.WorkflowType); def != nil {
+		for _, st := range def.StepsFor(run.Revision) {
+			names = append(names, st.Name)
+		}
+	} else {
+		names = run.Revision.Steps
+	}
+	byName := map[string]wf.StepResult{}
+	for _, s := range latest(steps) {
+		byName[s.StepName] = s
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<a class="dots" href="%s">`, v.InstanceHref(run.ID))
+	for _, name := range names {
+		st, recorded := byName[name]
+		status := "not run"
+		if recorded {
+			status = string(st.Status)
+		}
+		fmt.Fprintf(&b, `<span class="dot" title="%s: %s" style="display:inline-block;width:.75em;height:.75em;margin-right:.2em;border-radius:50%%;border:1px solid #7a7a7a;background:%s"></span>`,
+			html.EscapeString(name), status, dotColour(st.Status, recorded))
+	}
+	b.WriteString(`</a>`)
+	return template.HTML(b.String())
+}
+
 func (v *Views) definitionsHTML(ctx context.Context) template.HTML {
 	counts, err := v.Store.CountRuns(ctx)
 	var b strings.Builder
@@ -326,10 +434,11 @@ func (v *Views) definitionHTML(ctx context.Context, t wf.WorkflowType) (template
 		fmt.Fprintf(&b, `<p><strong>Purpose:</strong> %s — %s</p>`, html.EscapeString(def.Purpose.Name), html.EscapeString(def.Purpose.Description))
 	}
 	fmt.Fprintf(&b, `<p><strong>Instance key:</strong> %s — one instance per %s.</p>`, html.EscapeString(def.InstanceKey), html.EscapeString(def.InstanceKey))
+	v.startedBy(&b, t)
 	b.WriteString(`<h2 class="subtitle mt-4">Steps</h2>`)
 	b.WriteString(`<table class="table is-narrow is-striped"><thead><tr><th>#</th><th>Step</th><th>Does</th><th>Code</th></tr></thead><tbody>`)
 	for i, st := range def.Steps {
-		fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong></td><td>%s%s</td><td>%s</td></tr>`, i+1, html.EscapeString(stepLabel(st)), html.EscapeString(st.Description), v.subProcessNote(st), sourceLink(st))
+		fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong></td><td>%s%s</td><td>%s</td></tr>`, i+1, html.EscapeString(stepLabel(st)), html.EscapeString(st.Description), v.subProcessNote(*def, st), sourceLink(st))
 	}
 	b.WriteString(`</tbody></table>`)
 	v.diagramHTML(&b, t)

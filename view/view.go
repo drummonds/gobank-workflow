@@ -44,8 +44,10 @@ type Views struct {
 	// Base prefixes every link the pages make; it ends in "/". It may be
 	// relative when the host sets <base href>.
 	Base string
-	// Diagrams holds a picture of each definition as <type>.svg; nil, or a
-	// missing file, means no picture.
+	// Diagrams holds a picture of each definition drawn across as
+	// <type>.svg and, when the host ships one, drawn down as
+	// <type>.down.svg, shown instead on a narrow screen; nil, or a missing
+	// file, means no picture.
 	Diagrams fs.FS
 	// Detail, if set, adds content for one instance below the steps: what
 	// the host alone knows about its workflow type. href is the instance's
@@ -92,7 +94,7 @@ func (v *Views) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprint(w, diagram.Instance(*def, run, latest(steps), v.DefinitionHref))
+		_, _ = fmt.Fprint(w, diagram.Instance(*def, run, latest(steps), diagram.Across, v.DefinitionHref))
 	})
 	mux.HandleFunc("GET /definitions", func(w http.ResponseWriter, r *http.Request) {
 		v.frame(w, r, Page{Active: "definitions", HTML: v.definitionsHTML(r.Context())})
@@ -105,16 +107,20 @@ func (v *Views) Handler() http.Handler {
 		}
 		v.frame(w, r, Page{Active: "definitions", HTML: html})
 	})
-	mux.HandleFunc("GET /definitions/{type}/diagram.svg", func(w http.ResponseWriter, r *http.Request) {
-		svg, ok := v.diagram(wf.WorkflowType(r.PathValue("type")))
-		if !ok {
-			http.NotFound(w, r)
-			return
+	picture := func(suffix string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			svg, ok := v.diagram(wf.WorkflowType(r.PathValue("type")), suffix)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "image/svg+xml")
+			w.Header().Set("Cache-Control", "no-cache")
+			_, _ = w.Write(svg)
 		}
-		w.Header().Set("Content-Type", "image/svg+xml")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(svg)
-	})
+	}
+	mux.HandleFunc("GET /definitions/{type}/diagram.svg", picture(""))
+	mux.HandleFunc("GET /definitions/{type}/diagram.down.svg", picture(".down"))
 	return mux
 }
 
@@ -209,11 +215,13 @@ func (v *Views) definition(t wf.WorkflowType) *wf.Definition {
 	return nil
 }
 
-func (v *Views) diagram(t wf.WorkflowType) ([]byte, bool) {
+// diagram is the shipped picture of a definition: suffix "" for the one
+// drawn across, ".down" for the one drawn down.
+func (v *Views) diagram(t wf.WorkflowType, suffix string) ([]byte, bool) {
 	if v.Diagrams == nil {
 		return nil, false
 	}
-	svg, err := fs.ReadFile(v.Diagrams, string(t)+".svg")
+	svg, err := fs.ReadFile(v.Diagrams, string(t)+suffix+".svg")
 	return svg, err == nil
 }
 

@@ -31,20 +31,33 @@ func TestTheDemoRegistersItsFourWorkflows(t *testing.T) {
 	}
 }
 
-// A batch's sub-process step starts many payments, each an instance of the
-// payment definition; the batch has a step that waits for them after it.
-func TestABatchStartsManyPaymentsAndWaitsForThem(t *testing.T) {
-	var start int
+// A batch's sub-process step starts its payments all at once, each an
+// instance of the payment definition given its place in the file; a later
+// step of the batch joins them.
+func TestABatchStartsItsPaymentsAllAtOnceAndALaterStepJoinsThem(t *testing.T) {
+	var start, joins int
 	for i, s := range PaymentBatch.Steps {
 		if s.Child == PaymentType {
-			if !s.Many {
-				t.Fatalf("%s starts one payment, want many", s.Name)
+			if s.Mode != wf.AllAtOnce {
+				t.Fatalf("%s starts payments %q, want all at once", s.Name, s.Mode)
+			}
+			if s.Given == "" {
+				t.Fatalf("%s says nothing of what a payment is given", s.Name)
 			}
 			start = i
+		}
+		if s.Joins != "" {
+			if s.Joins != "start payments" {
+				t.Fatalf("%s joins %q, want the step that starts the payments", s.Name, s.Joins)
+			}
+			joins = i
 		}
 	}
 	if start == 0 || start == len(PaymentBatch.Steps)-1 {
 		t.Fatalf("payments should be started after receiving and before settling: %+v", PaymentBatch.Steps)
+	}
+	if joins <= start {
+		t.Fatalf("the step that joins the payments should come after the one that starts them: %+v", PaymentBatch.Steps)
 	}
 	for _, s := range Payment.Steps {
 		if s.Child != "" {

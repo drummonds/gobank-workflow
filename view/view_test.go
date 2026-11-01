@@ -373,20 +373,36 @@ func TestDefinitionsDescribeTheirStepsAndCountTheirInstances(t *testing.T) {
 	}
 }
 
+// A host ships a picture of each definition drawn across, <type>.svg, and
+// may ship one drawn down, <type>.down.svg; the page shows the one that
+// fits the screen, the down picture on a phone.
 func TestDiagramsAreServedAndEmbeddedWhenShipped(t *testing.T) {
-	s := &store{runs: []wf.RunRecord{run("r1", shipping, "v1.1.0", wf.StatusCompleted, t0)}}
+	s := &store{runs: []wf.RunRecord{run("r1", shipping, "v1.1.0", wf.StatusCompleted, t0), run("r2", accrual, "", wf.StatusCompleted, t0)}}
 	v := views(s)
-	v.Diagrams = fstest.MapFS{"ship.svg": {Data: []byte("<svg>ship</svg>")}}
+	v.Diagrams = fstest.MapFS{"ship.svg": {Data: []byte("<svg>ship</svg>")}, "ship.down.svg": {Data: []byte("<svg>ship down</svg>")}, "accrue.svg": {Data: []byte("<svg>accrue</svg>")}}
 
 	svg := serve(t, v, "/workflows/definitions/ship/diagram.svg")
 	if svg.status != 200 || svg.body != "<svg>ship</svg>" {
 		t.Fatalf("svg: %d %q", svg.status, svg.body)
 	}
-	if p := serve(t, v, "/workflows/definitions/accrue/diagram.svg"); p.status != 404 {
+	if down := serve(t, v, "/workflows/definitions/ship/diagram.down.svg"); down.status != 200 || down.body != "<svg>ship down</svg>" {
+		t.Fatalf("down svg: %d %q", down.status, down.body)
+	}
+	if p := serve(t, v, "/workflows/definitions/accrue/diagram.down.svg"); p.status != 404 {
+		t.Fatalf("missing down diagram: status %d", p.status)
+	}
+	if p := serve(t, v, "/workflows/definitions/nope/diagram.svg"); p.status != 404 {
 		t.Fatalf("missing diagram: status %d", p.status)
 	}
-	mustContain(t, serve(t, v, "/workflows/definitions/ship").body, `src="/workflows/definitions/ship/diagram.svg"`)
-	mustContain(t, serve(t, v, "/workflows/instances/r1").body, `src="/workflows/definitions/ship/diagram.svg"`)
+	both := `<picture><source media="(max-width: 768px)" srcset="/workflows/definitions/ship/diagram.down.svg"><img src="/workflows/definitions/ship/diagram.svg"`
+	mustContain(t, serve(t, v, "/workflows/definitions/ship").body, both)
+	mustContain(t, serve(t, v, "/workflows/instances/r1").body, both)
+	accrue := serve(t, v, "/workflows/definitions/accrue").body
+	mustContain(t, accrue, `<img src="/workflows/definitions/accrue/diagram.svg"`)
+	if strings.Contains(accrue, "<picture>") {
+		t.Fatal("with no down picture the across one is shown on its own")
+	}
+	v.Diagrams = nil
 	if strings.Contains(serve(t, v, "/workflows/definitions/accrue").body, ".svg") {
 		t.Fatal("no diagram shipped for accrue; its page should not embed one")
 	}
@@ -506,7 +522,7 @@ func TestACancelledInstanceIsTaggedAsEnded(t *testing.T) {
 
 var (
 	batching = wf.Definition{Type: "batch", Purpose: wf.Purpose{Name: "scan", Description: "Scan a batch."}, Description: "One batch of prints.", InstanceKey: "batch id",
-		Steps: []wf.Step{{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Many: true}, {Name: "close"}}}
+		Steps: []wf.Step{{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Mode: wf.OneAtATime, Given: "the batch id and the load's number"}, {Name: "close", Joins: "loads"}}}
 	loading = wf.Definition{Type: "load", Purpose: wf.Purpose{Name: "scan", Description: "Scan a batch."}, Description: "One load of the bed.", InstanceKey: "batch id/n",
 		Steps: []wf.Step{{Name: "preview"}, {Name: "photos", Child: "photo"}}}
 )
@@ -533,12 +549,38 @@ func TestAnInstanceListsItsChildrenAndLinksUpToItsParent(t *testing.T) {
 	}
 }
 
-func TestADefinitionPageNamesTheChildOfASubProcessStep(t *testing.T) {
+// A parent's page says of each child-starting step how it starts its
+// children and what it gives them, and marks the step that waits for
+// them; a child's page says who starts it.
+func TestADefinitionPageStatesItsPlaceAmongParentsAndChildren(t *testing.T) {
 	v := &view.Views{Store: &store{}, Definitions: []wf.Definition{batching, loading}, Base: "/workflows/"}
 	body := serve(t, v, "/workflows/definitions/batch").body
-	mustContain(t, body, "loads ⊞", `starts many <a href="/workflows/definitions/load"><code>load</code></a>`)
-	mustContain(t, serve(t, v, "/workflows/definitions/load").body, `starts one <a href="/workflows/definitions/photo"><code>photo</code></a>`)
+	mustContain(t, body, "loads ⊞",
+		`starts <a href="/workflows/definitions/load"><code>load</code></a> children one at a time; <em>close</em> waits for all, given the batch id and the load&#39;s number`,
+		`waits for every <em>loads</em> child to be through`)
+	if strings.Contains(body, "Started by") {
+		t.Fatal("a top-level definition is started by nobody in the registry")
+	}
+	load := serve(t, v, "/workflows/definitions/load").body
+	mustContain(t, load, `starts one <a href="/workflows/definitions/photo"><code>photo</code></a>`,
+		`<strong>Started by:</strong> <a href="/workflows/definitions/batch"><code>batch</code></a>&#39;s step <em>loads</em>, one at a time, given the batch id and the load&#39;s number`)
 	mustContain(t, serve(t, v, "/workflows/definitions").body, "describe → loads ⊞ → close")
+}
+
+// The four ways children are started and waited for, as the page words
+// them; a fan-out that nothing waits for is warned about.
+func TestADefinitionPageWordsEachWayOfStartingChildren(t *testing.T) {
+	each := wf.Definition{Type: "each", Steps: []wf.Step{{Name: "scans", Child: "scan", Mode: wf.OneAtATime}}}
+	fanJoined := wf.Definition{Type: "fan", Steps: []wf.Step{{Name: "photos", Child: "photo", Mode: wf.AllAtOnce}, {Name: "receipt", Joins: "photos"}}}
+	fanLoose := wf.Definition{Type: "loose", Steps: []wf.Step{{Name: "photos", Child: "photo", Mode: wf.AllAtOnce}}}
+	v := &view.Views{Store: &store{}, Definitions: []wf.Definition{each, fanJoined, fanLoose}, Base: "/workflows/"}
+	mustContain(t, serve(t, v, "/workflows/definitions/each").body, `starts <a href="/workflows/definitions/scan"><code>scan</code></a> children one at a time and waits for each`)
+	joined := serve(t, v, "/workflows/definitions/fan").body
+	mustContain(t, joined, `starts a <a href="/workflows/definitions/photo"><code>photo</code></a> child per item, all at once; <em>receipt</em> waits for all`, `waits for every <em>photos</em> child to be through`)
+	if strings.Contains(joined, "nothing waits") {
+		t.Fatal("receipt waits for the photos")
+	}
+	mustContain(t, serve(t, v, "/workflows/definitions/loose").body, `starts a <a href="/workflows/definitions/photo"><code>photo</code></a> child per item, all at once`, `<span class="tag is-warning is-light">nothing waits for the children</span>`)
 }
 
 // A queue row says what ran as the workflow and the last two characters
@@ -617,5 +659,62 @@ func TestDefinitionsListTheirRoleAndTheirFirstFewSteps(t *testing.T) {
 	mustContain(t, body, "shoot → crop → colour → name … <span class=\"has-text-grey\">(6 steps)</span>", "build → tag → publish")
 	if strings.Contains(body, "receipt") || strings.Contains(body, "publish …") {
 		t.Fatalf("four or fewer steps are shown in full; more are cut after the fourth:\n%s", body)
+	}
+}
+
+// Progress is a run's steps as a row of dots a host places on its own page
+// about the thing the run is about: one per step in the definition's
+// order, coloured by state, titled with the step and its status, the row
+// linking to the instance page.
+func TestProgressIsARowOfDotsOnePerStepColouredByState(t *testing.T) {
+	v := views(&store{})
+	r := run("r1", shipping, "v1.1.0", wf.StatusFailed, t0)
+	steps := []wf.StepResult{stage("r1", "build", wf.StatusCompleted, t0), stage("r1", "tag", wf.StatusFailed, t0.Add(time.Second)),
+		stage("r1", "tag", wf.StatusCompleted, t0.Add(time.Minute))} // the retry
+	row := string(v.Progress(r, steps))
+	mustContain(t, row, `<a class="dots" href="/workflows/instances/r1">`)
+	dots := regexp.MustCompile(`<span class="dot" title="([^"]*)" style="[^"]*background:([^;"]*)`).FindAllStringSubmatch(row, -1)
+	var got []string
+	for _, d := range dots {
+		got = append(got, d[1]+" "+d[2])
+	}
+	want := []string{"build: completed #48c78e", "tag: completed #48c78e", "publish: not run #ffffff"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("dots %q, want %q in:\n%s", got, want, row)
+	}
+}
+
+func TestProgressColoursWaitingRunningAndCancelled(t *testing.T) {
+	v := views(&store{})
+	colour := func(status wf.RunStatus) string {
+		row := string(v.Progress(run("r", shipping, "v1", wf.StatusRunning, t0), []wf.StepResult{stage("r", "build", status, t0)}))
+		m := regexp.MustCompile(`title="build: ([^"]*)" style="[^"]*background:(#[0-9a-f]{6})`).FindStringSubmatch(row)
+		if m == nil {
+			t.Fatalf("no build dot in:\n%s", row)
+		}
+		return m[1] + " " + m[2]
+	}
+	for status, want := range map[wf.RunStatus]string{
+		wf.StatusWaiting: "waiting #ffb000", wf.StatusRunning: "running #ffb000", wf.StatusCancelled: "cancelled #ffe08a", wf.StatusFailed: "failed #f14668",
+	} {
+		if got := colour(status); got != want {
+			t.Fatalf("%s: %q, want %q", status, got, want)
+		}
+	}
+}
+
+// A run of a definition this build does not have, or of an older
+// revision, draws the steps its revision recorded.
+func TestProgressFollowsTheRevisionTheRunRecorded(t *testing.T) {
+	v := views(&store{})
+	r := run("r1", shipping, "v0.9", wf.StatusCompleted, t0)
+	r.Revision = wf.NewRevision([]string{"build", "ship"})
+	row := string(v.Progress(r, []wf.StepResult{stage("r1", "build", wf.StatusCompleted, t0), stage("r1", "ship", wf.StatusCompleted, t0)}))
+	if strings.Count(row, `class="dot"`) != 2 || !strings.Contains(row, `title="ship: completed"`) || strings.Contains(row, "publish") {
+		t.Fatalf("two dots, build and ship:\n%s", row)
+	}
+	unknown := wf.RunRecord{ID: "u1", WorkflowType: "nope", Revision: wf.NewRevision([]string{"a", "b", "c"})}
+	if row := string(v.Progress(unknown, nil)); strings.Count(row, `class="dot"`) != 3 || !strings.Contains(row, `title="c: not run"`) {
+		t.Fatalf("an unknown definition's revision still names its steps:\n%s", row)
 	}
 }

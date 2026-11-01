@@ -42,16 +42,16 @@ Each definition is a kind of workflow the engine can run; each run recorded in t
 |---|---|---|---|
 | `daily_update` | End-of-day processing for one business date: the `DayProcessor` runs over every account | business date | `end_of_day`, one per account |
 | `release` | Ship a new version through the release pipeline; a failed stage stops the release and the next run resumes from it | version | check → bump → changelog → tag → push origin → push mirror → verify install → deploy docs |
-| `payment_batch` | Pay a file of five payments; each payment is a child instance under the batch, which settles once they have all finished and fails if any failed | batch reference (`PAY-0001`) | receive → start payments (sub-process, one `payment` per payment) → settle |
+| `payment_batch` | Pay a file of five payments; each payment is a child instance under the batch, which settles once they have all finished and fails if any failed | batch reference (`PAY-0001`) | receive → start payments (sub-process, a `payment` child per payment, all at once) → settle (joins them) |
 | `payment` | Pay one payment of a batch out of the paying account | batch reference/position (`PAY-0001/3`) | check funds → post |
 
 The batch and its payments are a master–detail pair: the batch's instance page lists its payments as children with their state, and each payment's page links up to its batch.
 
-The diagrams below show only how the steps flow; they are generated from the registry by `cmd/defd2` and rendered with d2 at docs build time, so they cannot drift from the code. Each step is a link to the code that performs it. The demo app shows the same pictures, colours an instance's steps by state, and carries the detail in tables.
+The diagrams below show only how the steps flow (the release pipeline drawn down, since eight steps across would read too small on this page); they are generated from the registry by `cmd/defd2` and rendered with d2 at docs build time, so they cannot drift from the code. Each step is a link to the code that performs it. The demo app shows the same pictures, colours an instance's steps by state, and carries the detail in tables.
 
 ![daily_update definition](definitions/daily_update.svg)
 
-![release definition](definitions/release.svg)
+![release definition](definitions/release.down.svg)
 
 ![payment_batch definition](definitions/payment_batch.svg)
 

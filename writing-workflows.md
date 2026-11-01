@@ -18,7 +18,10 @@ compiled and run by `go test`, so it cannot drift from the engine.
 | stage | a step of a pipeline as code: a name, a `Run`, an `Until` or both, an `Undo` when its work must not outlive a failed run, and `Final` when its work must never be redone | `Stage` |
 | attempt | one call of the runner for an instance; a retry is a new attempt at the same instance, never a new instance | `StartedAt` is the attempt's start |
 | child | an instance started under another, its parent; the parent's children are the instances its sub-process started | `RunRecord.ParentID`; `RunFilter.ParentID` lists them, `Store.CountDescendants` counts them by status at any depth; `Store.DeleteRun` removes a run and every run under it, for a host deleting the thing the run was about |
-| sub-process step | a step that starts instances of a child definition, one or many, and does not wait for them | `Step.Child`, `Step.Many`; the stage calls `Runner.StartChild` |
+| sub-process step | a step that starts instances of a child definition: one child, or children one at a time or all at once | `Step.Child`, `Step.Mode`; the stage calls `Runner.StartChild` |
+| mode | how a sub-process step starts its children: one at a time is a loop, the next starting when the previous is through or when an operator starts it; all at once is a fan-out | `Mode`: `OneAtATime`, `AllAtOnce`; unset means one child |
+| given | what a child is given, as prose: the engine hands it only its key and business date, so this is the contract of what the key names | `Step.Given` |
+| join | the step whose `Until` waits for a child-starting step's children to be through | `Step.Joins`, naming the child-starting step |
 
 An instance renders from the revision it recorded, not from the live
 definition, so it stays right after the code changes: `Definition.StepsFor`
@@ -41,7 +44,8 @@ payment batch with its payments as children.
 | `Description` | what one instance achieves and what a retry does | one or two sentences |
 | `InstanceKey` | what identifies one instance, as prose | "version", "environment@expiry", "business date" |
 | `Steps` | every step the runner will record, in order | `Name` matches the stage's `Name` exactly; `Description` says what it does; `Source` is an `https://` link to the code |
-| `Steps[i].Child`, `Many` | the step is a sub-process: it starts instances of the `Child` definition, one, or `Many` | the child is a definition of its own, with its own page and picture |
+| `Steps[i].Child`, `Mode`, `Given` | the step is a sub-process: it starts instances of the `Child` definition, one, `OneAtATime` or `AllAtOnce`, each `Given` what the prose says | the child is a definition of its own, with its own page and picture |
+| `Steps[i].Joins` | the step waits for every child of the named step to be through | name the child-starting step; a fan-out nobody joins is warned about on the page |
 
 Check the registry in the host's tests, as the demo's
 `definitions_test.go` does: every definition has a type, a purpose and a
@@ -151,17 +155,34 @@ run id with `FindRunByKey`, as it reads back anything else it needs.
 | again, after a crash or a retry | in the store, any status | returns it as it is | the tick carries on with it |
 | under a run id the store does not have | — | error | the stage fails |
 
-A sub-process stage never waits for its children: a child whose stage
-waits on its parent's later stage would deadlock against a parent waiting
-on the child. Waiting is a later stage's `Until`, through the existing
-park-and-poll: `CountDescendants` by status when the rule is "every child
-done", or the host's own condition when it is something of the domain,
-such as "every photo receipted". The instance page lists a run's children
-with their status, and a child's page links up to its parent. The demo's
-payment batch (`cmd/demo/payments.go`) is the pattern end to end: `start
-payments` starts one child per payment, `settle` waits until none is active
-and fails the batch if any failed, and one press of *Pay* is the host's tick
-run until the batch settles.
+A stage that starts children all at once never waits for them: a child
+whose stage waits on its parent's later stage would deadlock against a
+parent waiting on the child. Waiting is a later stage's `Until`, through
+the existing park-and-poll: `CountDescendants` by status when the rule is
+"every child done", or the host's own condition when it is something of
+the domain, such as "every photo receipted". That stage names the
+child-starting step in `Joins`, so the definition page and the picture
+show where the children are waited for. A stage that starts them one at a
+time is a loop, and is its own join unless a later stage is named. The
+instance page lists a run's children with their status, and a child's page
+links up to its parent. The demo's payment batch (`cmd/demo/payments.go`)
+is the pattern end to end: `start payments` starts one child per payment,
+`settle` joins them, waiting until none is active and failing the batch if
+any failed, and one press of *Pay* is the host's tick run until the batch
+settles.
+
+The engine hands a child only its key and business date (`StartChild`):
+the key names the host's own record, which the child reads. `Given` on the
+child-starting step says what that is, as prose, and the child's definition
+page repeats it under *Started by*.
+
+| `Mode` | `Joins` names the step | Drawn as | The definition page says |
+|---|---|---|---|
+| unset, no `Child` | — | a box | — |
+| `OneAtATime` | no | a loop arrow back to the step | starts children one at a time and waits for each: the step is its own join |
+| `OneAtATime` | yes | a loop arrow, a dashed edge into the joining step | starts children one at a time; *step* waits for all |
+| `AllAtOnce` | yes | stacked boxes, a dashed edge into the joining step | starts a child per item, all at once; *step* waits for all |
+| `AllAtOnce` | no | stacked boxes | the same, with a warning: nothing waits for the children |
 
 ## What the store records and what the host supplies
 
@@ -178,7 +199,7 @@ The host supplies:
 | a store | `sqlstore.New(db)` or `NewMemStore()` | the engine keeps no state of its own |
 | the tick | a loop that calls the runner until the run is not waiting | the engine never holds a goroutine |
 | a log per step | an `io.Writer` the stages write to | the step record keeps only name, status, error and duration |
-| the pages | instance and definition pages; the demo app and gobank-deploy are two | the engine renders nothing |
+| the pages | instance and definition pages; the demo app and gobank-deploy are two. `view.Views.Progress` is a run's steps as a row of coloured dots for the host's own page about the thing the run is about | the engine renders nothing |
 | the clock, injectable | `Now` and `Sleep` as fields with real defaults | tests drive time |
 
 ## Testing a workflow
@@ -199,15 +220,22 @@ A new store implementation runs `storetest`'s contract checks, as
 `diagram.Definition` writes one d2 file per definition from the registry
 (the demo's `defd2` does, and `task docs:d2` renders them): boxes are the
 steps, each linked to its source. A sub-process step is one collapsed box,
-BPMN's ⊞ on its name, stacked when it starts many, linking to the child
-definition's page; the child's picture is on that page. More than four
-steps wrap into rows of four, so the picture stays legible across a
-960px page. One picture answers one question, so a definition that does
-not fit across a screen is split: the run of steps that overflows becomes a
-sub-process with its own page.
+BPMN's ⊞ on its name, a loop arrow when it starts children one at a time,
+stacked when all at once, linking to the child definition's page; the
+child's picture is on that page, and a dashed edge runs from the step to
+the one that joins its children. Each definition is drawn twice, across
+in one row (`diagram.Across`, `<type>.svg`) and down in one column
+(`diagram.Down`, `<type>.down.svg`); the pages show the one that fits the
+screen, down on a phone. Neither is a grid: d2 fills a grid column first
+and cannot loop an edge back to a grid cell, and in a row or a column no
+edge crosses a step. A long row shrinks to fit the page, which is the
+pressure to split: one picture answers one question, so a definition that
+does not fit across a screen becomes a sub-process with its own page for
+the run of steps that overflows.
 `diagram.Instance` draws one instance with its steps coloured by state;
-the demo app serves it at `workflows/instances/<id>/diagram.d2`. Nothing is
-drawn by hand, so the pictures cannot drift from the code.
+the demo app serves it drawn across at
+`workflows/instances/<id>/diagram.d2`. Nothing is drawn by hand, so the
+pictures cannot drift from the code.
 
 ## Worked example
 
@@ -261,7 +289,7 @@ pattern above: one key, the store read back through `runnertest`.
 - [ ] Waits are `Until` conditions, not sleeps
 - [ ] A stage whose work bills or blocks has an `Undo`
 - [ ] A stage whose work must never be redone is `Final`
-- [ ] A sub-process stage starts its children with `StartChild` and returns; a later stage's `Until` waits on them
+- [ ] A sub-process stage starts its children with `StartChild` in its `Mode`, saying what they are `Given`; a later stage's `Until` waits on them and `Joins` it
 - [ ] Each definition fits across one screen; a longer run of steps is a sub-process with its own definition and page
 - [ ] `Now` and `Sleep` are injectable with real defaults
 - [ ] A test for the happy path, one for a failure resumed, one per waiting stage, one for a failure undone where a stage has an `Undo`
