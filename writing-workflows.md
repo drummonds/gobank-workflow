@@ -199,7 +199,7 @@ The host supplies:
 | a store | `sqlstore.New(db)` or `NewMemStore()` | the engine keeps no state of its own |
 | the tick | a loop that calls the runner until the run is not waiting | the engine never holds a goroutine |
 | a log per step | an `io.Writer` the stages write to | the step record keeps only name, status, error and duration |
-| the pages | instance and definition pages; the demo app and gobank-deploy are two | the engine renders nothing |
+| the pages | instance and definition pages; the demo app and gobank-deploy are two. `view.Views.Progress` is a run's steps as a row of coloured dots for the host's own page about the thing the run is about | the engine renders nothing |
 | the clock, injectable | `Now` and `Sleep` as fields with real defaults | tests drive time |
 
 ## Testing a workflow
