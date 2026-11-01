@@ -49,8 +49,9 @@ var PaymentBatch = wf.Definition{
 	InstanceKey: "batch reference",
 	Steps: []wf.Step{
 		{Name: "receive", Description: "take the file in: count the payments and total them", Source: srcDemo},
-		{Name: "start payments", Description: "start one payment instance per payment in the file", Source: srcDemo, Child: PaymentType, Many: true},
-		{Name: "settle", Description: "wait until no payment is still active; fail the batch if any payment failed", Source: srcDemo},
+		{Name: "start payments", Description: "start one payment instance per payment in the file", Source: srcDemo, Child: PaymentType, Mode: wf.AllAtOnce,
+			Given: "the batch reference and the payment's position in the file; the payment reads its amount and accounts from the batch's file"},
+		{Name: "settle", Description: "wait until no payment is still active; fail the batch if any payment failed", Source: srcDemo, Joins: "start payments"},
 	},
 }
 

@@ -85,17 +85,67 @@ func stepLabel(st wf.Step) string {
 	return st.Name
 }
 
-// subProcessNote says what a sub-process step starts, linking to the child
-// definition; empty for a plain step.
-func (v *Views) subProcessNote(st wf.Step) string {
+// subProcessNote says what a sub-process step starts, how, what it gives
+// its children and which step waits for them, linking to the child
+// definition; on the step that waits, whose children it waits for; empty
+// for a plain step.
+func (v *Views) subProcessNote(d wf.Definition, st wf.Step) string {
+	if st.Joins != "" {
+		return fmt.Sprintf(` <span class="has-text-grey">— waits for every <em>%s</em> child to be through</span>`, html.EscapeString(st.Joins))
+	}
 	if st.Child == "" {
 		return ""
 	}
-	n := "one"
-	if st.Many {
-		n = "many"
+	child := fmt.Sprintf(`<a href="%s"><code>%s</code></a>`, v.DefinitionHref(st.Child), html.EscapeString(string(st.Child)))
+	joins := ""
+	for _, other := range d.Steps {
+		if other.Joins == st.Name {
+			joins = fmt.Sprintf("; <em>%s</em> waits for all", html.EscapeString(other.Name))
+		}
 	}
-	return fmt.Sprintf(` <span class="has-text-grey">— starts %s <a href="%s"><code>%s</code></a></span>`, n, v.DefinitionHref(st.Child), html.EscapeString(string(st.Child)))
+	var starts, warning string
+	switch {
+	case st.Mode == wf.OneAtATime && joins == "":
+		starts = fmt.Sprintf("starts %s children one at a time and waits for each", child)
+	case st.Mode == wf.OneAtATime:
+		starts = fmt.Sprintf("starts %s children one at a time%s", child, joins)
+	case st.Mode == wf.AllAtOnce && joins == "":
+		starts = fmt.Sprintf("starts a %s child per item, all at once", child)
+		warning = ` <span class="tag is-warning is-light">nothing waits for the children</span>`
+	case st.Mode == wf.AllAtOnce:
+		starts = fmt.Sprintf("starts a %s child per item, all at once%s", child, joins)
+	default:
+		starts = fmt.Sprintf("starts one %s%s", child, joins)
+	}
+	return fmt.Sprintf(` <span class="has-text-grey">— %s%s</span>%s`, starts, given(st), warning)
+}
+
+// given is what a child-starting step gives its children, as a clause;
+// empty when the step says nothing.
+func given(st wf.Step) string {
+	if st.Given == "" {
+		return ""
+	}
+	return ", given " + html.EscapeString(st.Given)
+}
+
+// startedBy says who starts a definition's instances: each registry step
+// that names it as a child, with its mode and what it gives. Nothing for
+// a definition nobody in the registry starts.
+func (v *Views) startedBy(b *strings.Builder, t wf.WorkflowType) {
+	for _, d := range v.Definitions {
+		for _, st := range d.Steps {
+			if st.Child != t {
+				continue
+			}
+			mode := ""
+			if st.Mode != "" {
+				mode = ", " + string(st.Mode)
+			}
+			fmt.Fprintf(b, `<p><strong>Started by:</strong> <a href="%s"><code>%s</code></a>&#39;s step <em>%s</em>%s%s.</p>`,
+				v.DefinitionHref(d.Type), html.EscapeString(string(d.Type)), html.EscapeString(st.Name), mode, given(st))
+		}
+	}
 }
 
 // parentLink names a run's parent and links up to it; the bare id when
@@ -230,7 +280,7 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 				status, dur, errMsg = statusTag(st.Status), took(time.Duration(st.DurationNs)), st.Error
 			}
 			fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong> <span class="has-text-grey">%s</span> %s%s</td><td>%s</td><td>%s</td><td class="has-text-danger">%s</td></tr>`,
-				i+1, html.EscapeString(stepLabel(stage)), html.EscapeString(stage.Description), sourceLink(stage), v.subProcessNote(stage), status, dur, html.EscapeString(errMsg))
+				i+1, html.EscapeString(stepLabel(stage)), html.EscapeString(stage.Description), sourceLink(stage), v.subProcessNote(*def, stage), status, dur, html.EscapeString(errMsg))
 		}
 		b.WriteString(`</tbody></table>`)
 	case def == nil && len(steps) > 0:
@@ -326,10 +376,11 @@ func (v *Views) definitionHTML(ctx context.Context, t wf.WorkflowType) (template
 		fmt.Fprintf(&b, `<p><strong>Purpose:</strong> %s — %s</p>`, html.EscapeString(def.Purpose.Name), html.EscapeString(def.Purpose.Description))
 	}
 	fmt.Fprintf(&b, `<p><strong>Instance key:</strong> %s — one instance per %s.</p>`, html.EscapeString(def.InstanceKey), html.EscapeString(def.InstanceKey))
+	v.startedBy(&b, t)
 	b.WriteString(`<h2 class="subtitle mt-4">Steps</h2>`)
 	b.WriteString(`<table class="table is-narrow is-striped"><thead><tr><th>#</th><th>Step</th><th>Does</th><th>Code</th></tr></thead><tbody>`)
 	for i, st := range def.Steps {
-		fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong></td><td>%s%s</td><td>%s</td></tr>`, i+1, html.EscapeString(stepLabel(st)), html.EscapeString(st.Description), v.subProcessNote(st), sourceLink(st))
+		fmt.Fprintf(&b, `<tr><td>%d</td><td><strong>%s</strong></td><td>%s%s</td><td>%s</td></tr>`, i+1, html.EscapeString(stepLabel(st)), html.EscapeString(st.Description), v.subProcessNote(*def, st), sourceLink(st))
 	}
 	b.WriteString(`</tbody></table>`)
 	v.diagramHTML(&b, t)

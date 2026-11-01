@@ -95,16 +95,37 @@ func NewRevision(steps []string) Revision {
 // code that performs it.
 //
 // Child, when set, makes it a sub-process step: its stage starts
-// instances of the Child definition under the run (Runner.StartChild),
-// one of them, or Many, and does not wait for them. Waiting is a later
-// step's business.
+// instances of the Child definition under the run (Runner.StartChild) in
+// its Mode, one child when the mode is unset. The engine hands a child
+// only its key and business date, so Given documents the contract: what
+// the child reads from the key, as prose. A step that starts children all
+// at once does not wait for them; the step whose Until does names it in
+// Joins, so the pages and the picture show where they are waited for.
 type Step struct {
 	Name        string
 	Description string
 	Source      string
 	Child       WorkflowType
-	Many        bool
+	Mode        Mode
+	Given       string
+	// Joins names the child-starting step whose children this step waits
+	// for; empty for a step that waits for none.
+	Joins string
 }
+
+// Mode is how a sub-process step starts its children: one child when
+// unset, OneAtATime or AllAtOnce.
+type Mode string
+
+const (
+	// OneAtATime starts the next child when the previous one is through,
+	// or when an operator starts it: a loop. Without a Joins step the step
+	// is its own join, waiting for each child.
+	OneAtATime Mode = "one at a time"
+	// AllAtOnce starts a child per item and returns: a fan-out, joined by
+	// the step that names it in Joins.
+	AllAtOnce Mode = "all at once"
+)
 
 // Definitions is the registry: every workflow the host program runs. It
 // starts empty; a host appends its own definitions in an init next to the

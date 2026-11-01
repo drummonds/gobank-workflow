@@ -114,7 +114,7 @@ func TestInstanceDrawsTheRevisionItRan(t *testing.T) {
 
 func TestDefinitionDrawsASubProcessAsACollapsedBoxLinkingToItsChild(t *testing.T) {
 	batch := wf.Definition{Type: "batch", InstanceKey: "batch id", Steps: []wf.Step{
-		{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Many: true}, {Name: "close"}}}
+		{Name: "describe"}, {Name: "loads", Description: "a load per load of the bed", Child: "load", Mode: wf.AllAtOnce}, {Name: "close"}}}
 	href := func(t wf.WorkflowType) string { return "/workflows/definitions/" + string(t) }
 	src := Definition(batch, href)
 	for _, want := range []string{
@@ -151,5 +151,30 @@ func TestALongStepListWrapsIntoRows(t *testing.T) {
 	inst := Instance(shipping, wf.RunRecord{WorkflowType: shipping.Type, Key: "v1"}, nil, nil)
 	if !strings.Contains(inst, "grid-columns: 4") {
 		t.Fatalf("an instance of a long definition wraps the same way:\n%s", inst)
+	}
+}
+
+// How children are started and waited for is drawn: a loop arrow on a
+// step that starts them one at a time, stacked boxes for all at once, and
+// a dashed edge into the step that waits for them all.
+func TestDefinitionDrawsTheModeAndTheJoin(t *testing.T) {
+	batch := wf.Definition{Type: "batch", Steps: []wf.Step{
+		{Name: "describe"}, {Name: "scans", Child: "scan", Mode: wf.OneAtATime}, {Name: "photos", Child: "photo", Mode: wf.AllAtOnce}, {Name: "close", Joins: "photos"}}}
+	src := Definition(batch, nil)
+	for _, want := range []string{
+		`scans -> scans: "one at a time"`,
+		"photos.style.multiple: true",
+		`photos -> close: "all through" {style.stroke-dash: 3}`,
+		"describe -> scans -> photos -> close",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("missing %q in:\n%s", want, src)
+		}
+	}
+	if strings.Contains(src, "scans.style.multiple") {
+		t.Fatalf("one at a time is a loop, not a stack:\n%s", src)
+	}
+	if strings.Contains(src, "describe -> describe") || strings.Contains(src, "close -> close") {
+		t.Fatalf("a plain step has no loop:\n%s", src)
 	}
 }
