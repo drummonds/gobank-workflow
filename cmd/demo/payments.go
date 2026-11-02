@@ -274,10 +274,10 @@ func (a *App) batchStages(ref string) []wf.Stage {
 // makes the post stage fail this attempt, once.
 func (a *App) paymentStages(p payment, fail bool) []wf.Stage {
 	return []wf.Stage{
-		{Name: "check funds", Run: func(context.Context) error {
-			balance, ok := a.proc.Balance(p.Account)
-			if !ok {
-				return fmt.Errorf("no account %s", p.Account)
+		{Name: "check funds", Run: func(ctx context.Context) error {
+			balance, err := a.proc.Balance(ctx, p.Account)
+			if err != nil {
+				return err
 			}
 			if balance < p.Amount {
 				return fmt.Errorf("%s: %s exceeds balance %s", p.Account, money(p.Amount, -2), money(balance, -2))
@@ -289,7 +289,7 @@ func (a *App) paymentStages(p payment, fail bool) []wf.Stage {
 			if fail {
 				return fmt.Errorf("posting %s failed (injected)", p.Key)
 			}
-			if err := a.proc.Debit(p.Account, p.Amount); err != nil {
+			if err := a.proc.Debit(ctx, p.Account, p.Amount); err != nil {
 				return err
 			}
 			_, err := a.db.ExecContext(ctx, `UPDATE payments SET posted_at = $1 WHERE id = $2`, time.Now().UTC().Format(time.RFC3339Nano), p.ID)
