@@ -230,7 +230,7 @@ The host supplies:
 | its step data | tables keyed by `run_id` or `step_id`, as above | the engine records that a step ran, not what it worked on |
 | the tick | a loop that calls the runner until the run is not waiting | the engine never holds a goroutine |
 | a log per step | an `io.Writer` the stages write to | the step record keeps only name, status, error and duration |
-| the pages | instance and definition pages; the demo app and gobank-deploy are two. `view.Views.Progress` is a run's steps as a row of coloured dots for the host's own page about the thing the run is about | the engine renders nothing |
+| the pages | instance and definition pages; the demo app and gobank-deploy are two. `view.Views.Progress` is a run's steps as a row of coloured dots for the host's own page about the thing the run is about; the instance page carries the same row under its title | the engine renders nothing |
 | the clock, injectable | `Now` and `Sleep` as fields with real defaults | tests drive time |
 
 ## Testing a workflow

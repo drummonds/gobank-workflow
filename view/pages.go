@@ -203,8 +203,9 @@ func errorNote(b *strings.Builder, err error) {
 	fmt.Fprintf(b, `<div class="notification is-danger">%s</div>`, html.EscapeString(err.Error()))
 }
 
-// instanceHTML is one instance: what it is, its steps laid over the
-// revision it ran when they are stages, then the host's Detail.
+// instanceHTML is one instance: what it is, its progress as a row of
+// dots, its steps laid over the revision it ran when they are stages,
+// then the host's Detail.
 func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 	run, steps, ok := v.instance(r.Context(), id)
 	if !ok {
@@ -223,6 +224,10 @@ func (v *Views) instanceHTML(r *http.Request, id string) (template.HTML, bool) {
 	name := html.EscapeString(instanceName(run))
 	fmt.Fprintf(&b, `<nav class="breadcrumb"><ul><li><a href="%sinstances">Instances</a></li><li class="is-active"><a>%s %s</a></li></ul></nav>`, v.Base, run.WorkflowType, name)
 	fmt.Fprintf(&b, `<h1 class="title">%s %s %s</h1>`, run.WorkflowType, name, statusTag(run.Status))
+	// The shape of the run before its table: a sparkline of the steps.
+	if dots := v.dots(run, steps); dots != "" {
+		fmt.Fprintf(&b, `<p class="dots">%s</p>`, dots)
+	}
 	b.WriteString(`<table class="table is-narrow"><tbody>`)
 	fmt.Fprintf(&b, `<tr><th>Instance id</th><td><code>%s</code></td></tr>`, html.EscapeString(run.ID))
 	if def != nil {
@@ -371,6 +376,12 @@ func dotColour(status wf.RunStatus, recorded bool) string {
 // its name and status, the row linking to the instance page. Inline
 // spans, no SVG, so it sits in a table cell or a line of text.
 func (v *Views) Progress(run wf.RunRecord, steps []wf.StepResult) template.HTML {
+	return template.HTML(fmt.Sprintf(`<a class="dots" href="%s">%s</a>`, v.InstanceHref(run.ID), v.dots(run, steps)))
+}
+
+// dots is the row of dot spans Progress links: empty for a run whose
+// revision is not known, since there are no steps to draw.
+func (v *Views) dots(run wf.RunRecord, steps []wf.StepResult) string {
 	var names []string
 	if def := v.definition(run.WorkflowType); def != nil {
 		for _, st := range def.StepsFor(run.Revision) {
@@ -384,7 +395,6 @@ func (v *Views) Progress(run wf.RunRecord, steps []wf.StepResult) template.HTML 
 		byName[s.StepName] = s
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, `<a class="dots" href="%s">`, v.InstanceHref(run.ID))
 	for _, name := range names {
 		st, recorded := byName[name]
 		status := "not run"
@@ -394,8 +404,7 @@ func (v *Views) Progress(run wf.RunRecord, steps []wf.StepResult) template.HTML 
 		fmt.Fprintf(&b, `<span class="dot" title="%s: %s" style="display:inline-block;width:.75em;height:.75em;margin-right:.2em;border-radius:50%%;border:1px solid #7a7a7a;background:%s"></span>`,
 			html.EscapeString(name), status, dotColour(st.Status, recorded))
 	}
-	b.WriteString(`</a>`)
-	return template.HTML(b.String())
+	return b.String()
 }
 
 func (v *Views) definitionsHTML(ctx context.Context) template.HTML {
