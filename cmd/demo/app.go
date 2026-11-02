@@ -126,8 +126,8 @@ func (a *App) reset() error {
 func memoryDSN(dsn string) bool { return dsn == ":memory:" || strings.Contains(dsn, "mode=memory") }
 
 // open connects to the database, brings it to the current schema, the
-// engine's and then the demo's own payments table, and starts the
-// simulation over whatever the database holds.
+// engine's and then the demo's own payments and accounts tables, and
+// starts the simulation over whatever the database holds.
 func (a *App) open() error {
 	d, err := sql.Open("pglike", a.opts.DSN)
 	if err != nil {
@@ -142,11 +142,23 @@ func (a *App) open() error {
 		d.Close()
 		return fmt.Errorf("payments table: %w", err)
 	}
+	proc, err := demoaccounts.Open(context.Background(), d, a.opts.Accounts, a.opts.Rate, a.opts.Balance)
+	if err != nil {
+		d.Close()
+		return err
+	}
 	a.db = d
 	a.store = store
-	a.proc = demoaccounts.New(a.opts.Accounts, a.opts.Rate, a.opts.Balance)
+	a.proc = proc
 	a.runner = wf.NewRunner(store, a.proc)
+	// The date to process is in the runs: the one after the last completed.
 	a.current = a.opts.Start
+	if last, err := store.LastCompletedDate(context.Background(), wf.WorkflowDailyUpdate); err != nil {
+		d.Close()
+		return err
+	} else if !last.IsZero() {
+		a.current = last.Next()
+	}
 	a.failNext = false
 	a.shipped = [3]int{0, 1, 2}
 	a.paid = 0
