@@ -188,15 +188,46 @@ page repeats it under *Started by*.
 
 The store records runs and steps: `workflow_runs` and `workflow_steps`,
 versioned through `sqlstore.Migrations`. Use `sqlstore.New` on a pglike
-database for real, `NewMemStore` in tests. A step of a pipeline carries
-its name, status, error and duration; the daily step carries the account's
-balances and interest.
+database for real, `NewMemStore` in tests. A step record is the fact that
+the step ran: its name, status, error and duration. It is not what the
+step worked on.
+
+### Step data lives in the host's tables
+
+The engine never sees a stage's inputs, so it cannot record them, and it
+should not: a posting instruction is bank data, and bank data belongs in a
+typed table under the bank's schema, not in a payload column on the
+engine's. The pattern is the host's own table, in the same database, keyed
+to the engine's rows by `run_id` (what an instance is about) or `step_id`
+(what one step did). A restart with only the database then finds both
+where to resume and what to do.
+
+| Data | Lives in | Keyed by | Demo |
+|---|---|---|---|
+| that a step ran, and how it ended | `workflow_steps` | | `post` failed in 1.07ms: posting PAY-0001/3 failed |
+| what an instance is about | the host's table | `run_id` | `payments`: account, amount, posted_at |
+| what one step produced | the host's table | `step_id` | an account's day: balances, interest |
+| what to do next | the runs (`FindRunByKey`, the last completed date) | key | the batch to retry, the date to process |
+| anything | process memory | | nothing: the simulation's counters are the remaining exception |
+
+Write the row in the stage that first holds the data, and make the write
+idempotent on its natural key, since a stage may run again after a crash:
+the demo's `receive` inserts the batch file with `ON CONFLICT DO NOTHING`,
+`start payments` keys each row to the child run it starts, `post` stamps
+the row posted. Every later stage and the instance page read the row back
+rather than carrying a struct from memory: if the struct is the source,
+the database is not. The host owns the table's migrations beside the
+engine's, in one sequence in gobank, as its own DDL at open in the demo.
+
+The daily step's balance and interest columns on `workflow_steps` predate
+this pattern. They are the exception, not the model.
 
 The host supplies:
 
 | | What | Why |
 |---|---|---|
 | a store | `sqlstore.New(db)` or `NewMemStore()` | the engine keeps no state of its own |
+| its step data | tables keyed by `run_id` or `step_id`, as above | the engine records that a step ran, not what it worked on |
 | the tick | a loop that calls the runner until the run is not waiting | the engine never holds a goroutine |
 | a log per step | an `io.Writer` the stages write to | the step record keeps only name, status, error and duration |
 | the pages | instance and definition pages; the demo app and gobank-deploy are two. `view.Views.Progress` is a run's steps as a row of coloured dots for the host's own page about the thing the run is about | the engine renders nothing |
