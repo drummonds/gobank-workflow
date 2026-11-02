@@ -207,6 +207,7 @@ where to resume and what to do.
 | that a step ran, and how it ended | `workflow_steps` | | `post` failed in 1.07ms: posting PAY-0001/3 failed |
 | what an instance is about | the host's table | `run_id` | `payments`: account, amount, posted_at |
 | what one step produced | the host's table | `step_id` | an account's day: balances, interest |
+| the state the steps change | the host's table, keyed by its own id | | `accounts`: the balance now; the day's steps and the payments move it |
 | what to do next | the runs (`FindRunByKey`, the last completed date) | key | the batch to retry, the date to process |
 | anything | process memory | | nothing: the simulation's counters are the remaining exception |
 
@@ -230,7 +231,7 @@ The host supplies:
 | its step data | tables keyed by `run_id` or `step_id`, as above | the engine records that a step ran, not what it worked on |
 | the tick | a loop that calls the runner until the run is not waiting | the engine never holds a goroutine |
 | a log per step | an `io.Writer` the stages write to | the step record keeps only name, status, error and duration |
-| the pages | instance and definition pages; the demo app and gobank-deploy are two. `view.Views.Progress` is a run's steps as a row of coloured dots for the host's own page about the thing the run is about | the engine renders nothing |
+| the pages | instance and definition pages; the demo app and gobank-deploy are two. `view.Views.Progress` is a run's steps as a row of coloured dots for the host's own page about the thing the run is about; the instance page carries the same row under its title | the engine renders nothing |
 | the clock, injectable | `Now` and `Sleep` as fields with real defaults | tests drive time |
 
 ## Testing a workflow

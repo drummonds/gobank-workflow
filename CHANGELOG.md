@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-02
+
+- The demo's accounts are a table, not a slice: `demoaccounts.Open` keeps the book in an `accounts` table in the same pglike database, read and written by the daily run, `check funds` and `post`, so balances survive a restart and a second App over the same database carries on where the first left off. The business date to process is read from the runs on open rather than starting over. The guide's decision table gains the row for the state the steps change; An instance page carries its progress dots as a line under the title: one dot per step of the run's revision, coloured by latest state, so a reader sees the shape of the run before the table
+
+### Added
+
+- An instance page carries its progress dots as a line under the title: one dot per step of the run's revision, coloured by latest state, so a reader sees the shape of the run before the table (#71)
+
+### Changed
+
+- The demo's accounts are a table, not a slice: `demoaccounts.Open` keeps the book in an `accounts` table in the same pglike database, read and written by the daily run, `check funds` and `post`, so balances survive a restart and a second App over the same database carries on where the first left off. The business date to process is read from the runs on open rather than starting over. The guide's decision table gains the row for the state the steps change (#70)
+
 ## [0.16.0] - 2026-11-02
 
 - Step data lives in the host's tables: the guide states the pattern (a typed table in the same database, keyed to the engine's rows by `run_id` or `step_id`, written by the stage that first holds the data and read back by every later stage and the instance page) with a decision table of where each kind of data lives, and the demo follows it: a `payments` table written by the batch's receive stage, keyed to each payment's run, stamped by post, so a failed payment resumes from the database alone over a restart. `Options.DSN` opens the demo over a file; Reset discards it

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
-	"git.bytestone.uk/hum3/gobank-workflow/internal/demoaccounts"
 )
 
 const numAccounts = 1000
@@ -46,7 +45,7 @@ func (s *WasmState) reset() {
 	s.start = wf.NewBusinessDate(2026, time.January, 1)
 	s.current = s.start
 
-	proc := demoaccounts.New(numAccounts, 0.035, 1000000) // 10,000.00 at 3.5%
+	proc := newBook(numAccounts, 0.035, 1000000) // 10,000.00 at 3.5%
 	s.store = wf.NewMemStore()
 	s.runner = wf.NewRunner(s.store, proc)
 	s.timings = nil

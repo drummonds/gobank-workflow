@@ -430,3 +430,28 @@ func TestAPaymentResumesOverARestartFromTheDatabaseAlone(t *testing.T) {
 		t.Fatalf("paying again after the restart should settle the batch:\n%s", list)
 	}
 }
+
+// The accounts are a table, not a slice: a restart with only the database
+// carries the balances on, so the next day opens where the last one
+// closed, net of the payments made.
+func TestBalancesSurviveARestartFromTheDatabaseAlone(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "demo.db")
+	first := newApp(t, Options{Accounts: 3, DSN: dsn})
+	first.Pay(context.Background(), 0)
+	first.Advance(context.Background(), 1)
+	first.Close()
+
+	second := newApp(t, Options{Accounts: 3, DSN: dsn})
+	second.Advance(context.Background(), 1)
+	srv, c := serve(t, second)
+	_, list := get(t, c, srv.URL+"/workflows/instances")
+	_, day2 := get(t, c, srv.URL+"/"+instanceHref(t, list, "2026-01-02"))
+	// acct-0000 opened at 10,000.00, paid 100.00 and 400.00, then accrued
+	// 0.91 on day 1: day 2 opens at 9,500.91, not at 10,000.00 again.
+	mustContain(t, day2, "9,500.91")
+	if strings.Contains(day2, "10,000.00") {
+		t.Fatalf("the restart reopened the accounts at their opening balance:\n%s", day2)
+	}
+	_, explorer := get(t, c, srv.URL+"/internal/explorer")
+	mustContain(t, explorer, `explorer/accounts"`)
+}

@@ -718,3 +718,39 @@ func TestProgressFollowsTheRevisionTheRunRecorded(t *testing.T) {
 		t.Fatalf("an unknown definition's revision still names its steps:\n%s", row)
 	}
 }
+
+// An instance page carries its progress dots as a line directly under the
+// title: one per step of the run's revision, coloured by latest state, so
+// a reader sees the shape of the run before the table. The row is the
+// page's own, not a link back to itself.
+func TestAnInstancePageCarriesItsProgressDotsUnderTheTitle(t *testing.T) {
+	r := run("r1", shipping, "v1.1.0", wf.StatusFailed, t0)
+	s := &store{runs: []wf.RunRecord{r}, steps: map[string][]wf.StepResult{"r1": {
+		stage("r1", "build", wf.StatusCompleted, t0), stage("r1", "tag", wf.StatusFailed, t0.Add(time.Second)),
+	}}}
+	body := serve(t, views(s), "/workflows/instances/r1").body
+	m := regexp.MustCompile(`</h1>\s*<p class="dots">(.*?)</p>`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("no dot row directly under the title:\n%s", body)
+	}
+	dots := regexp.MustCompile(`title="([^"]*)" style="[^"]*background:(#[0-9a-f]{6})`).FindAllStringSubmatch(m[1], -1)
+	var got []string
+	for _, d := range dots {
+		got = append(got, d[1]+" "+d[2])
+	}
+	want := []string{"build: completed #48c78e", "tag: failed #f14668", "publish: not run #ffffff"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("dots %q, want %q", got, want)
+	}
+	if strings.Contains(body, `<a class="dots"`) {
+		t.Fatalf("the page should not link to itself:\n%s", body)
+	}
+}
+
+func TestARunRecordedBeforeRevisionsHasNoDotRow(t *testing.T) {
+	r := wf.RunRecord{ID: "x1", WorkflowType: "retired", Key: "k", Status: wf.StatusCompleted, StartedAt: t0, CreatedAt: t0}
+	body := serve(t, views(&store{runs: []wf.RunRecord{r}}), "/workflows/instances/x1").body
+	if strings.Contains(body, `class="dots"`) {
+		t.Fatalf("no revision, no steps to draw:\n%s", body)
+	}
+}
