@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -363,4 +365,68 @@ func TestPaymentsDebitTheAccountsTheNextDayProcesses(t *testing.T) {
 	_, detail := get(t, c, srv.URL+"/"+instanceHref(t, list, "2026-01-01"))
 	// acct-0000 paid 100.00 and 400.00 (payments 1 and 4 of 5 over 3 accounts).
 	mustContain(t, detail, "9,500.00")
+}
+
+// newApp is an App over the given options, closed with the test.
+func newApp(t *testing.T, opts Options) *App {
+	t.Helper()
+	app, err := NewApp(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { app.Close() })
+	return app
+}
+
+// serve is a test server over an App's handler.
+func serve(t *testing.T, app *App) (*httptest.Server, *http.Client) {
+	t.Helper()
+	srv := httptest.NewServer(app.Handler("/"))
+	t.Cleanup(srv.Close)
+	return srv, &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+// The batch file is bank data: receiving a batch writes each payment to
+// the host's own payments table in the same database, keyed to the batch's
+// run and, once started, to the payment's own run, so the step data is in
+// the DB and not only in the process that ran it.
+func TestTheBatchFileIsBankDataInThePaymentsTable(t *testing.T) {
+	app := newApp(t, Options{Accounts: 3})
+	srv, c := serve(t, app)
+	app.Pay(context.Background(), 3)
+
+	_, explorer := get(t, c, srv.URL+"/internal/explorer")
+	mustContain(t, explorer, `explorer/payments"`)
+	_, rows := get(t, c, srv.URL+"/internal/explorer/payments?filter=payment_key&value=PAY-0001/3")
+	mustContain(t, rows, "Data (1 rows)", "PAY-0001/3", "acct-0002", "30000")
+	// The row is keyed to the engine's rows: the batch's run and the payment's.
+	_, payments := get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	runID := strings.TrimPrefix(instanceHref(t, payments, "PAY-0001/3"), "workflows/instances/")
+	_, byRun := get(t, c, srv.URL+"/internal/explorer/payments?filter=run_id&value="+runID)
+	mustContain(t, byRun, "Data (1 rows)", "PAY-0001/3")
+}
+
+// A restart with only the database resumes a failed payment: the second
+// App knows nothing but what the first one wrote, and the payment's page
+// says what it is about before the retry and completes after it.
+func TestAPaymentResumesOverARestartFromTheDatabaseAlone(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "demo.db")
+	first := newApp(t, Options{Accounts: 3, DSN: dsn})
+	first.Pay(context.Background(), 3)
+	first.Close()
+
+	second := newApp(t, Options{Accounts: 3, DSN: dsn})
+	srv, c := serve(t, second)
+	_, payments := get(t, c, srv.URL+"/workflows/instances?workflow=payment")
+	href := instanceHref(t, payments, "PAY-0001/3")
+	_, child := get(t, c, srv.URL+"/"+href)
+	mustContain(t, child, `class="tag is-danger"`, "300.00", "acct-0002")
+
+	second.Pay(context.Background(), 0)
+	_, child = get(t, c, srv.URL+"/"+href)
+	mustContain(t, child, `class="tag is-success"`, "300.00", "acct-0002")
+	_, list := get(t, c, srv.URL+"/workflows/instances")
+	if strings.Contains(list, `class="tag is-danger"`) {
+		t.Fatalf("paying again after the restart should settle the batch:\n%s", list)
+	}
 }
