@@ -9,13 +9,13 @@ require (
 	git.bytestone.uk/hum3/go-postgres v0.5.13
 	git.bytestone.uk/hum3/gobank-workflow v0.0.0-00010101000000-000000000000
 	git.bytestone.uk/hum3/lofigui v0.17.40
+	github.com/google/uuid v1.6.0
 	github.com/ncruces/go-sqlite3 v0.35.6
 	github.com/nlepage/go-wasm-http-server/v2 v2.2.1
 )
 
 require (
 	git.bytestone.uk/hum3/gobank-db v0.2.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/hack-pad/safejs v0.1.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

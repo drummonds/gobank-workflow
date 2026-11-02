@@ -59,14 +59,26 @@ func (a *App) detail(r *http.Request, run wf.RunRecord, steps []wf.StepResult, h
 	var b strings.Builder
 	switch run.WorkflowType {
 	case definitions.BatchType:
-		var total int64
-		for _, p := range a.paymentsOf(run.Key) {
-			total += p.Amount
+		a.mu.Lock()
+		ps, err := a.paymentsOf(r.Context(), run.Key)
+		a.mu.Unlock()
+		if err == nil && len(ps) > 0 {
+			var total int64
+			for _, p := range ps {
+				total += p.Amount
+			}
+			fmt.Fprintf(&b, `<p>%d payments, %s in total.</p>`, len(ps), money(total, -2))
 		}
-		fmt.Fprintf(&b, `<p>%d payments, %s in total.</p>`, paymentsPerBatch, money(total, -2))
 	case definitions.PaymentType:
-		if p, ok := a.paymentOf(run.Key); ok {
-			fmt.Fprintf(&b, `<p>Payment %d of %s: %s from <code>%s</code>.</p>`, p.N, html.EscapeString(p.Batch), money(p.Amount, -2), html.EscapeString(p.Account))
+		a.mu.Lock()
+		p, err := a.paymentByRun(r.Context(), run.ID)
+		a.mu.Unlock()
+		if err == nil && p != nil {
+			posted := ""
+			if p.PostedAt != "" {
+				posted = ", posted"
+			}
+			fmt.Fprintf(&b, `<p>Payment %d of %s: %s from <code>%s</code>%s.</p>`, p.N, html.EscapeString(p.Batch), money(p.Amount, -2), html.EscapeString(p.Account), posted)
 		}
 	}
 	var accounts []wf.StepResult

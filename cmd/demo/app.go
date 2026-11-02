@@ -8,10 +8,12 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +46,7 @@ type Options struct {
 	Rate     float64         // annual interest rate (default 3.5%)
 	Balance  int64           // opening balance in minor units (default 10,000.00)
 	Start    wf.BusinessDate // first business date (default 2026-01-01)
+	DSN      string          // pglike database (default ":memory:"); a file path persists across Apps
 }
 
 func (o Options) withDefaults() Options {
@@ -55,6 +58,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.Balance == 0 {
 		o.Balance = 1_000_000
+	}
+	if o.DSN == "" {
+		o.DSN = ":memory:"
 	}
 	if o.Start.IsZero() {
 		o.Start = wf.NewBusinessDate(2026, time.January, 1)
@@ -85,7 +91,7 @@ type App struct {
 func NewApp(opts Options) (*App, error) {
 	assets, _ := fs.Sub(assetFS, "assets")
 	a := &App{opts: opts.withDefaults(), page: template.Must(template.New("layout").Parse(layoutHTML)), diagrams: assets}
-	if err := a.reset(); err != nil {
+	if err := a.open(); err != nil {
 		return nil, err
 	}
 	return a, nil
@@ -105,8 +111,25 @@ func (a *App) Close() error {
 func (a *App) reset() error {
 	if a.db != nil {
 		_ = a.db.Close()
+		a.db = nil
 	}
-	d, err := sql.Open("pglike", ":memory:")
+	if !memoryDSN(a.opts.DSN) {
+		if err := os.Remove(a.opts.DSN); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return a.open()
+}
+
+// memoryDSN reports whether the pglike DSN names an in-memory database,
+// which is new on every open.
+func memoryDSN(dsn string) bool { return dsn == ":memory:" || strings.Contains(dsn, "mode=memory") }
+
+// open connects to the database, brings it to the current schema, the
+// engine's and then the demo's own payments table, and starts the
+// simulation over whatever the database holds.
+func (a *App) open() error {
+	d, err := sql.Open("pglike", a.opts.DSN)
 	if err != nil {
 		return err
 	}
@@ -114,6 +137,10 @@ func (a *App) reset() error {
 	if err != nil {
 		d.Close()
 		return err
+	}
+	if _, err := d.Exec(paymentsSQL); err != nil {
+		d.Close()
+		return fmt.Errorf("payments table: %w", err)
 	}
 	a.db = d
 	a.store = store
@@ -124,7 +151,7 @@ func (a *App) reset() error {
 	a.shipped = [3]int{0, 1, 2}
 	a.paid = 0
 	a.log = nil
-	a.logf("simulation reset: %d accounts, %.2f%% p.a., starting %s", a.opts.Accounts, a.opts.Rate*100, a.current)
+	a.logf("simulation started: %d accounts, %.2f%% p.a., starting %s", a.opts.Accounts, a.opts.Rate*100, a.current)
 	return nil
 }
 
