@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-02
+
+- The demo server copes with a taken port: on a terminal it names the holder and offers to kill it, take the next free port or quit; without one it moves to the next free port and says so (#77)
+
+### Fixed
+
+- The demo server copes with a taken port: on a terminal it names the holder and offers to kill it, take the next free port or quit; without one it moves to the next free port and says so (#77) (#77)
+
 ## [0.17.0] - 2026-11-02
 
 - The demo's accounts are a table, not a slice: `demoaccounts.Open` keeps the book in an `accounts` table in the same pglike database, read and written by the daily run, `check funds` and `post`, so balances survive a restart and a second App over the same database carries on where the first left off. The business date to process is read from the runs on open rather than starting over. The guide's decision table gains the row for the state the steps change; An instance page carries its progress dots as a line under the title: one dot per step of the run's revision, coloured by latest state, so a reader sees the shape of the run before the table
